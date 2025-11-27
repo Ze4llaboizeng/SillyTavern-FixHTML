@@ -70,12 +70,10 @@ function healHtmlContent(htmlContent) {
 // --- 2. UI Builder ---
 let targetMessageId = null;
 
-// ⭐ CONFIG: ตั้งค่ารูปและชื่อผู้สร้างตรงนี้ ⭐
+// ⭐ME⭐
 const authorConfig = {
-    name: "Zealllll", // ชื่อผู้สร้าง
-    // ใส่ URL รูปภาพของคุณตรงนี้ (เช่น URL จาก Discord หรือ Imgur)
-    // หรือถ้าเป็นไฟล์ในเครื่อง SillyTavern ให้ใส่ path เช่น 'img/user_avatar.png'
-    avatarUrl: "https://files.catbox.moe/u8u1u8.jpg" // ตัวอย่างรูป (เปลี่ยนได้)
+    name: "Zealllll",
+    avatarUrl: "https://github.com/Ze4llaboizeng/SillyTavern-FixHTML/blob/main/TA-2025-11-27-16-04-40-cutegirlwi-3990145806-0.png" 
 };
 
 function openSplitEditor() {
