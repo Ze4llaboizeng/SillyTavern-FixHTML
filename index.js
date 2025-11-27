@@ -1,30 +1,68 @@
 const extensionName = "html-healer";
 
-// --- 1. Logic การแยกส่วน (หลังบ้าน) ---
+// --- 1. Logic การแยกส่วนแบบอัจฉริยะ (Smart Splitter) ---
 function splitContent(rawText) {
-    // ล้างรหัส HTML encode ที่อาจติดมา
+    // ล้างรหัส HTML encode
     let cleanText = rawText
         .replace(/&lt;think&gt;/gi, "<think>")
         .replace(/&lt;\/think&gt;/gi, "</think>");
 
-    // แยกหา Think Tag
+    // 1. กรณีสมบูรณ์: เจอคู่ <think>...</think>
     const match = cleanText.match(/<think>([\s\S]*?)<\/think>/i);
     if (match) {
         return {
-            cot: match[1].trim(), // เนื้อหาในหัว (ไม่มีแท็ก)
-            main: cleanText.replace(match[0], "").trim() // เนื้อเรื่องหลัก
+            type: "tag_match",
+            cot: match[1].trim(),
+            main: cleanText.replace(match[0], "").trim()
         };
     }
-    // กรณีมีแต่ตัวเปิด ไม่มีตัวปิด
+
+    // คำค้นหาจุดจบความคิด (Stop Phrases)
+    const stopPhrases = [
+        "Close COT", "CLOSE COT", "close cot",
+        "End of thought", "Analysis complete", 
+        "Thinking process end", "Reasoning finished"
+    ];
+    const stopRegex = new RegExp(`(${stopPhrases.join("|")})`, "i");
+
+    // 2. กรณีมีตัวเปิด <think> แต่ไม่มีตัวปิด (Broken Tag)
     const openIndex = cleanText.search(/<think>/i);
     if (openIndex !== -1) {
+        const afterOpen = cleanText.substring(openIndex + 7);
+        const stopMatch = afterOpen.match(stopRegex);
+        
+        if (stopMatch) {
+            // เจอคำปิดท้าย! ตัดจบตรงนั้นเลย
+            const cutPoint = stopMatch.index + stopMatch[0].length;
+            return {
+                type: "phrase_split",
+                cot: afterOpen.substring(0, cutPoint).trim(),
+                main: afterOpen.substring(cutPoint).trim()
+            };
+        } else {
+            // ไม่เจอคำปิด งั้นเหมาหมดว่าเป็น CoT ไปก่อน (แล้วให้คนแก้)
+            return {
+                type: "broken_tag",
+                cot: afterOpen.trim(),
+                main: "" // เนื้อเรื่องหาย หรืออาจจะอยู่ก่อนหน้า (แต่ปกติ CoT มาก่อน)
+            };
+        }
+    }
+
+    // 3. กรณีไม่มีแท็กเลย แต่เจอคำปิดท้าย (No Tags + Stop Phrase) *จุดที่ user ขอมา*
+    const phraseMatch = cleanText.match(stopRegex);
+    if (phraseMatch) {
+        // ตัดแบ่งตรงคำปิดท้าย
+        const cutPoint = phraseMatch.index + phraseMatch[0].length;
         return {
-            cot: cleanText.substring(openIndex + 7).trim(),
-            main: cleanText.substring(0, openIndex).trim()
+            type: "phrase_split", // แจ้งว่าแยกด้วยคำพูด
+            cot: cleanText.substring(0, cutPoint).trim(),
+            main: cleanText.substring(cutPoint).trim()
         };
     }
-    // ไม่เจออะไรเลย
-    return { cot: "", main: cleanText };
+
+    // 4. ไม่เจออะไรเลย (เนื้อเรื่องล้วน หรือ CoT ล้วนที่ไม่มีจุดสังเกต)
+    return { type: "none", cot: "", main: cleanText };
 }
 
 function healHtmlContent(htmlContent) {
@@ -49,7 +87,14 @@ function openSplitEditor() {
     const lastIndex = chat.length - 1;
     targetMessageId = lastIndex;
     const originalText = chat[lastIndex].mes;
+    
+    // เรียกใช้ Smart Splitter
     const parts = splitContent(originalText);
+
+    // แจ้งเตือนถ้ามีการแยกให้อัตโนมัติ
+    if (parts.type === "phrase_split") {
+        toastr.info("ระบบตรวจพบคำปิดท้าย CoT จึงแยกกล่องให้อัตโนมัติครับ");
+    }
 
     const modalHtml = `
     <div id="html-healer-modal" class="html-healer-overlay">
@@ -60,8 +105,8 @@ function openSplitEditor() {
                     <i class="fa-solid fa-wand-magic-sparkles"></i> Magic Editor
                 </div>
                 <div class="mobile-tabs">
-                    <button class="tab-btn active" onclick="switchTab('edit')"><i class="fa-solid fa-pen"></i> Edit</button>
-                    <button class="tab-btn" onclick="switchTab('preview')"><i class="fa-solid fa-eye"></i> View</button>
+                    <button class="tab-btn active" onclick="switchTab('edit')"><i class="fa-solid fa-pen"></i> แก้ไข</button>
+                    <button class="tab-btn" onclick="switchTab('preview')"><i class="fa-solid fa-eye"></i> ตัวอย่าง</button>
                 </div>
                 <div class="close-btn" onclick="$('#html-healer-modal').remove()">✖</div>
             </div>
@@ -72,19 +117,19 @@ function openSplitEditor() {
                     <div class="input-container think-theme">
                         <div class="input-label">
                             <span>🧠 ความคิดในใจ (Thinking)</span>
-                            <span class="tip">ไม่ต้องพิมพ์ &lt;think&gt; ใส่แค่ข้อความ</span>
+                            <span class="tip">ระบบแยกให้แล้ว ตรวจทานได้เลย</span>
                         </div>
-                        <textarea id="editor-cot" placeholder="ตัวละครกำลังคิดอะไรอยู่...">${parts.cot}</textarea>
+                        <textarea id="editor-cot" placeholder="ยังไม่มีความคิด...">${parts.cot}</textarea>
                     </div>
 
                     <div class="input-container main-theme">
                         <div class="input-label">
-                            <span>💬 เนื้อเรื่อง / บทพูด (Story)</span>
+                            <span>💬 เนื้อเรื่อง / บทพูด</span>
                             <div class="tools">
-                                <button class="tool-btn" id="btn-heal-html" title="ซ่อม HTML ที่พัง"><i class="fa-solid fa-screwdriver-wrench"></i> Auto-Fix HTML</button>
+                                <button class="tool-btn" id="btn-heal-html"><i class="fa-solid fa-wrench"></i> ซ่อม HTML</button>
                             </div>
                         </div>
-                        <textarea id="editor-main" placeholder="เนื้อเรื่องบรรยาย...">${parts.main}</textarea>
+                        <textarea id="editor-main" placeholder="เนื้อเรื่อง...">${parts.main}</textarea>
                     </div>
                 </div>
 
@@ -97,9 +142,11 @@ function openSplitEditor() {
             </div>
 
             <div class="healer-footer">
-                <div class="status-bar" id="healer-status">พร้อมใช้งาน</div>
+                <div class="status-bar" id="healer-status">
+                    ${parts.type === 'phrase_split' ? '⚡ แยกโดยอัตโนมัติจากคำค้น' : 'พร้อมใช้งาน'}
+                </div>
                 <button id="btn-save-split" class="save-button">
-                    <i class="fa-solid fa-floppy-disk"></i> บันทึก (Save)
+                    <i class="fa-solid fa-floppy-disk"></i> บันทึก
                 </button>
             </div>
         </div>
@@ -108,9 +155,7 @@ function openSplitEditor() {
 
     $(document.body).append(modalHtml);
     
-    // --- Logic การทำงาน ---
-
-    // ฟังก์ชันสลับแท็บ (สำหรับมือถือ)
+    // --- Logic UI ---
     window.switchTab = function(tabName) {
         $('.tab-btn').removeClass('active');
         $('.view-section').removeClass('active');
@@ -121,7 +166,7 @@ function openSplitEditor() {
         } else {
             $('.tab-btn:last-child').addClass('active');
             $('#view-preview').addClass('active');
-            updatePreview(); // อัปเดตพรีวิวก่อนโชว์
+            updatePreview();
         }
     }
 
@@ -130,7 +175,6 @@ function openSplitEditor() {
         const main = $('#editor-main').val();
         let previewHtml = "";
         
-        // สร้างกล่องจำลองให้เห็นภาพ
         if (cot) {
             previewHtml += `
             <div class="preview-think-bubble">
@@ -143,33 +187,28 @@ function openSplitEditor() {
         $('#healer-preview-box').html(previewHtml);
     };
 
-    // อัปเดตพรีวิวแบบ Realtime (เฉพาะ PC ที่จอใหญ่เห็นพร้อมกัน)
     $('#editor-cot, #editor-main').on('input', () => {
         if (window.innerWidth > 768) updatePreview();
     });
-    // เรียกครั้งแรก
     updatePreview();
 
-    // ปุ่มซ่อม HTML
     $('#btn-heal-html').on('click', () => {
         let val = $('#editor-main').val();
         let fixed = healHtmlContent(val);
         $('#editor-main').val(fixed);
-        toastr.success("ซ่อมโครงสร้าง HTML เรียบร้อย!");
+        toastr.success("โครงสร้าง HTML ถูกซ่อมแล้ว");
         updatePreview();
     });
 
-    // ปุ่มบันทึก
     $('#btn-save-split').on('click', async () => {
         const cot = $('#editor-cot').val().trim();
         const main = $('#editor-main').val();
 
-        // Safety: ถ้าเผลอเอา <think> ไปใส่ในกล่องล่าง
+        // Safety check
         if (/<think>/i.test(main)) {
-            if (!confirm("⚠️ ระบบตรวจเจอคำว่า <think> ในกล่องเนื้อเรื่อง (กล่องล่าง)\nปกติควรย้ายไปกล่องบน\n\nยืนยันจะบันทึกหรือไม่?")) return;
+            if (!confirm("⚠️ ยังมีคำว่า <think> หลงเหลือในกล่องเนื้อเรื่อง (กล่องล่าง)\nคุณต้องการบันทึกเลยหรือไม่?")) return;
         }
         
-        // ประกอบร่าง
         let finalMes = "";
         if (cot) finalMes += `<think>\n${cot}\n</think>\n`;
         finalMes += main;
@@ -194,7 +233,7 @@ function loadSettings() {
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
             <div class="inline-drawer-content">
-                <div class="styled_description_block">Easy Editor for Thinking Process.</div>
+                <div class="styled_description_block">Magic Editor with Smart Splitter.</div>
                 <div id="html-healer-open-split" class="menu_button">
                     <i class="fa-solid fa-wand-magic-sparkles"></i> Open Magic Editor
                 </div>
@@ -205,10 +244,10 @@ function loadSettings() {
     $('#html-healer-open-split').on('click', openSplitEditor);
 }
 
-// --- 3. CSS (Super Friendly Style) ---
+// --- CSS (Friendly & Responsive) ---
 const styles = `
 <style>
-/* --- CORE --- */
+/* CORE */
 .html-healer-box * { box-sizing: border-box; }
 .html-healer-overlay {
     position: fixed !important; top: 0; left: 0; width: 100vw; height: 100vh;
@@ -217,17 +256,16 @@ const styles = `
     backdrop-filter: blur(4px);
 }
 
-/* กล่องหลัก */
 .html-healer-box {
     width: 95%; max-width: 1200px; height: 90vh;
     background: var(--smart-background-color, #1e1e1e);
     border: 1px solid #444; border-radius: 12px;
     display: flex; flex-direction: column;
-    box-shadow: 0 0 40px rgba(0,0,0,0.5);
+    box-shadow: 0 0 50px rgba(0,0,0,0.6);
     overflow: hidden;
 }
 
-/* --- HEADER --- */
+/* HEADER */
 .healer-header {
     background: #252525; padding: 10px 15px;
     display: flex; align-items: center; justify-content: space-between;
@@ -236,51 +274,49 @@ const styles = `
 .header-title { font-size: 1.2em; font-weight: bold; color: #fff; display: flex; align-items: center; gap: 10px; }
 .close-btn { font-size: 1.5em; cursor: pointer; color: #ff6b6b; padding: 0 10px; }
 
-/* Tabs (Mobile Only) */
-.mobile-tabs { display: none; gap: 10px; background: #333; padding: 4px; border-radius: 20px; }
+.mobile-tabs { display: none; gap: 8px; background: #333; padding: 4px; border-radius: 20px; }
 .tab-btn {
     background: transparent; border: none; color: #aaa;
-    padding: 5px 15px; border-radius: 15px; cursor: pointer; font-weight: bold;
+    padding: 6px 14px; border-radius: 16px; cursor: pointer; font-weight: bold; font-size: 0.9em;
 }
 .tab-btn.active { background: var(--smart-theme-color, #6a5acd); color: white; }
 
-/* --- BODY --- */
+/* BODY */
 .healer-body { flex: 1; overflow: hidden; position: relative; display: flex; }
 .view-section { 
     flex: 1; display: flex; flex-direction: column; padding: 15px; gap: 15px; overflow-y: auto; 
     height: 100%;
 }
 
-/* Input Styles */
 .input-container {
     display: flex; flex-direction: column; flex: 1;
-    border-radius: 8px; padding: 2px;
+    border-radius: 8px; padding: 2px; transition: all 0.2s;
 }
 .input-container.think-theme { border: 2px solid #6a5acd; background: rgba(106, 90, 205, 0.05); }
 .input-container.main-theme { border: 2px solid #444; }
 
 .input-label {
-    padding: 8px 10px; font-weight: bold; color: #ddd;
+    padding: 8px 12px; font-weight: bold; color: #ddd;
     display: flex; justify-content: space-between; align-items: center;
-    background: rgba(0,0,0,0.2);
+    background: rgba(0,0,0,0.2); border-radius: 6px 6px 0 0;
 }
-.input-label .tip { font-size: 0.8em; color: #aaa; font-weight: normal; }
+.input-label .tip { font-size: 0.75em; color: #aaa; font-weight: normal; }
 .tool-btn {
     background: #444; border: none; color: white; border-radius: 4px;
-    padding: 4px 8px; font-size: 0.8em; cursor: pointer;
+    padding: 4px 10px; font-size: 0.8em; cursor: pointer; display: flex; gap: 5px; align-items: center;
 }
-.tool-btn:hover { background: #666; }
+.tool-btn:hover { background: #555; }
 
 textarea {
     flex: 1; width: 100%; border: none; background: transparent;
-    color: var(--smart-text-color, #eee); padding: 10px; resize: none;
-    font-family: monospace; font-size: 14px; outline: none;
+    color: var(--smart-text-color, #eee); padding: 12px; resize: none;
+    font-family: monospace; font-size: 14px; outline: none; line-height: 1.5;
 }
 
-/* Preview Styles */
+/* PREVIEW */
 .preview-container { 
     height: 100%; overflow-y: auto; background: rgba(0,0,0,0.2); 
-    border-radius: 8px; padding: 15px; border: 1px solid #444; 
+    border-radius: 8px; padding: 20px; border: 1px solid #444; 
 }
 .preview-think-bubble {
     background: rgba(106, 90, 205, 0.1); border-left: 4px solid #6a5acd;
@@ -289,44 +325,40 @@ textarea {
 }
 .bubble-label { 
     font-weight: bold; color: #6a5acd; font-style: normal; 
-    font-size: 0.8em; margin-bottom: 5px; text-transform: uppercase; 
+    font-size: 0.8em; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;
 }
 .preview-main { color: var(--smart-text-color, #eee); line-height: 1.6; }
 
-/* --- FOOTER --- */
+/* FOOTER */
 .healer-footer {
     height: 60px; background: #252525; border-top: 1px solid #444;
     display: flex; align-items: center; justify-content: space-between;
     padding: 0 20px; flex-shrink: 0;
 }
-.status-bar { font-size: 0.9em; color: #888; }
+.status-bar { font-size: 0.9em; color: #ffab40; font-weight: 500;}
 .save-button {
     background: var(--smart-theme-color, #4caf50); color: white;
-    border: none; padding: 10px 25px; border-radius: 20px;
+    border: none; padding: 10px 30px; border-radius: 20px;
     font-weight: bold; font-size: 1em; cursor: pointer;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3); transition: transform 0.1s;
 }
-.save-button:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.save-button:hover { filter: brightness(1.1); transform: translateY(-2px); }
 
-/* --- RESPONSIVE (MOBILE) --- */
+/* MOBILE RESPONSIVE */
 @media screen and (max-width: 768px) {
     .html-healer-box { width: 100%; height: 100%; border-radius: 0; border: none; }
-    
-    /* Show Tabs on Mobile */
     .mobile-tabs { display: flex; }
-    .header-title { display: none; } /* Hide title to save space */
-    
-    /* Hide Sections by default on mobile, show only active */
-    .view-section { display: none; }
+    .header-title { display: none; }
+    .view-section { display: none; padding: 10px; }
     .view-section.active { display: flex; }
     
-    /* Adjustments */
-    .input-container { min-height: 40%; } /* Ensure input boxes are tall enough */
-    textarea { font-size: 16px; } /* Prevent Zoom on iOS */
-    .save-button { padding: 8px 20px; }
+    /* Make inputs taller on mobile */
+    .input-container { min-height: 40%; }
+    textarea { font-size: 16px; /* Stop iOS Zoom */ }
+    .save-button { padding: 8px 20px; font-size: 0.95em; }
 }
 
-/* PC Only: Show both columns */
+/* PC LAYOUT */
 @media screen and (min-width: 769px) {
     .healer-body { flex-direction: row; }
     .view-section { display: flex !important; width: 50%; }
@@ -339,5 +371,5 @@ $('head').append(styles);
 
 jQuery(async () => {
     loadSettings();
-    console.log(`[${extensionName}] Ready (User Friendly Version).`);
+    console.log(`[${extensionName}] Ready (Smart Splitter Version).`);
 });
