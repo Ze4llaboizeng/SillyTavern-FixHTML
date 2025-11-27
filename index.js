@@ -5,9 +5,8 @@ const defaultDepth = 1;
  * LOGIC 1: The Specialized CoT Fixer
  * Rules:
  * - Only 1 <think> and 1 </think> allowed.
- * - Detect "Close COT" phrases.
- * - Detect "Story Starters" (quotes/asterisks).
- * - NEW: Detect ANY other HTML tag (<div, <span, etc.) to close thought.
+ * - Detect "Close COT" only if it doesn't already have a tag.
+ * - Case-insensitive checks to prevent double tagging.
  * - Ensures </think> is followed by a new line.
  */
 function fixChainOfThought(text) {
@@ -32,8 +31,8 @@ function fixChainOfThought(text) {
     }
 
     // Step C: Check if it is already closed (Case Insensitive)
-    // If the AI correctly closed the tag itself, we just format it and exit.
     if (/<\/think>/i.test(text)) {
+        // Optional: Ensure there is only one closing tag too
         const closeMatches = text.match(/<\/think>/gi) || [];
         if (closeMatches.length > 1) {
              const firstCloseIndex = text.search(/<\/think>/i);
@@ -44,12 +43,14 @@ function fixChainOfThought(text) {
              text = before + after;
         }
 
-        // FORMATTING: Ensure </think> is followed by a new line
+        // FORMATTING FIX: Ensure </think> is followed by a new line
+        // We replace "</think>" + any immediate whitespace with "</think>\n"
         text = text.replace(/<\/think>\s*/i, "</think>\n");
+
         return text; 
     }
 
-    // Step D: It is NOT closed. Check for Explicit Stop Phrases.
+    // Step D: It is NOT closed. Let's find where to close it.
     const stopPhrases = [
         "Close COT",
         "CLOSE COT",
@@ -57,49 +58,19 @@ function fixChainOfThought(text) {
         "End of thought",
         "Analysis complete"
     ];
+
     // Regex: Match phrase if NOT followed by </think> later
-    const stopRegex = new RegExp(`(${stopPhrases.join("|")})(?![\\s\\S]*<\\/think>)`, "i");
+    const regexPattern = new RegExp(`(${stopPhrases.join("|")})(?![\\s\\S]*<\\/think>)`, "i");
 
-    if (stopRegex.test(text)) {
+    if (regexPattern.test(text)) {
         console.log(`[${extensionName}] Found CoT stop phrase. Closing tag.`);
-        return text.replace(stopRegex, "$1\n</think>\n");
+        // Added \n before and after </think> for spacing
+        return text.replace(regexPattern, "$1\n</think>\n");
     }
 
-    // Step E: Check for Implicit "Story Starters"
-    // If we see a Double Newline followed by a Quote (") or Asterisk (*), 
-    // it's highly likely the story has started. We close the thought BEFORE that.
-    const storyStartRegex = /\n\n(?=["*])/;
-    
-    if (storyStartRegex.test(text)) {
-        console.log(`[${extensionName}] Found story starter (Quote/Asterisk). Closing thought before it.`);
-        return text.replace(storyStartRegex, "\n</think>\n\n");
-    }
-
-    // Step F: (NEW) Check for ANY HTML tag that indicates content start
-    // We look for any '<' followed by a letter or '/' that is NOT 'think' or '/think'.
-    // Examples: <div, <span, <br>, </div>, <p>, or even messy <div =
-    // Regex breakdown:
-    // <               -> Match opening bracket
-    // (?!\/?think\b)  -> Negative lookahead: Ensure it's NOT <think or </think
-    // \s* -> Allow optional whitespace (matches < div)
-    // [a-zA-Z\/]      -> Match the start of a tag name or closing slash
-    const htmlTagRegex = /<(?!\/?think\b)\s*[a-zA-Z\/]/i;
-
-    if (htmlTagRegex.test(text)) {
-        console.log(`[${extensionName}] Found HTML tag start. Closing thought before it.`);
-        // Find the index of this tag to insert </think> right before it
-        const matchIndex = text.search(htmlTagRegex);
-        
-        // Split string at the tag location
-        const before = text.slice(0, matchIndex);
-        const after = text.slice(matchIndex);
-        
-        // Reassemble with the closing tag and new line inserted in between
-        return before + "\n</think>\n" + after;
-    }
-
-    // Step G: Fallback - Close at end if absolutely nothing else was found
-    console.log(`[${extensionName}] No stop phrase, story start, or HTML tag found. Force closing at end.`);
+    // Step E: Fallback - Close at end if no phrase found
+    console.log(`[${extensionName}] No stop phrase. Force closing at end.`);
+    // Added \n before and after
     return text + "\n</think>\n";
 }
 
@@ -220,5 +191,5 @@ function loadSettings() {
 
 jQuery(async () => {
     loadSettings();
-    console.log(`[${extensionName}] Ready (Strict Mode + HTML Tag Detection).`);
+    console.log(`[${extensionName}] Ready (Formatted CoT).`);
 });
