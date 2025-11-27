@@ -73,8 +73,7 @@ let targetMessageId = null;
 // ⭐ME⭐
 const authorConfig = {
     name: "Zealllll",
-    // 🔴 แก้ Path ให้ตรงกับโฟลเดอร์จริง (เพิ่ม -main ตามชื่อไฟล์ zip)
-    avatarUrl: "scripts/extensions/third-party/SillyTavern-FixHTML-main/avatar.png"
+    avatarUrl: "scripts/extensions/third-party/SillyTavern-FixHTML/avatar.png"
 };
 
 function openSplitEditor() {
