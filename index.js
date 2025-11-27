@@ -10,16 +10,16 @@ function parseSegments(rawText) {
         .replace(/&lt;think&gt;/gi, "<think>")
         .replace(/&lt;\/think&gt;/gi, "</think>");
 
-    // ✅ แก้ไข: แบ่งด้วย Newline เดียว (\n+) ไม่ต้องรอ Double Enter
-    const rawBlocks = cleanText.split(/\n+/);
+    // [แก้ไข 1] แยกด้วย \n (เคาะครั้งเดียว) ก็นับเป็นบล็อกใหม่ทันที
+    // และกรองบรรทัดว่างทิ้ง (filter) เพื่อไม่ให้เกิดบล็อกเปล่าๆ
+    const rawBlocks = cleanText.split(/\n/).filter(line => line.trim() !== "");
     
     let isThinking = false;
     let hasFoundStoryStart = false;
 
     return rawBlocks.map((block, index) => {
         let text = block.trim();
-        if (!text) return null;
-
+        
         const startsWithComplexTag = /^<[^/](?!br|i|b|em|strong|span|p)[^>]*>?/i.test(text);
         const hasCloseThink = /<\/think>|Close COT|End of thought/i.test(text);
         
@@ -42,15 +42,15 @@ function parseSegments(rawText) {
         if (index === 0 && !isThinking && !startsWithComplexTag) assignedType = 'story';
 
         return { id: index, text: text, type: assignedType };
-    }).filter(b => b !== null);
+    }); // ไม่ต้อง filter null แล้วเพราะกรองตั้งแต่ต้น
 }
 
 function applySplitPoint(startIndex) {
     currentSegments.forEach((seg) => {
         if (seg.id < startIndex) {
-            seg.type = 'think'; 
+            seg.type = 'think';
         } else {
-            seg.type = 'story'; 
+            seg.type = 'story';
         }
     });
 }
@@ -110,15 +110,20 @@ function openSplitEditor() {
                 <div class="header-brand">
                     <div class="header-icon"><i class="fa-solid fa-layer-group"></i></div>
                     <div class="header-text">
-                        <span class="title">Selector</span> </div>
+                        <span class="title">Seg. Selector</span>
+                    </div>
                 </div>
+
                 <div class="header-controls">
                      <button class="reset-btn" id="btn-reset-split" title="Reset">
                         <i class="fa-solid fa-rotate-left"></i>
                      </button>
-                     <div class="author-pill" title="Created by ${authorConfig.name}">
+                     
+                     <div class="author-pill">
                         <img src="${authorConfig.avatarUrl}" onerror="this.style.display='none'">
+                        <span class="author-name">${authorConfig.name}</span>
                     </div>
+
                     <div class="close-btn" onclick="$('#html-healer-modal').remove()">
                         <i class="fa-solid fa-xmark"></i>
                     </div>
@@ -128,7 +133,7 @@ function openSplitEditor() {
             <div class="segment-picker-area">
                 <div class="segment-scroller" id="segment-container"></div>
                 <div class="picker-instruction">
-                    <i class="fa-solid fa-arrow-pointer"></i> Select <b>Story Start</b> block
+                    <i class="fa-solid fa-arrow-pointer"></i> คลิกบรรทัดที่เป็น <b>"จุดเริ่มเนื้อเรื่อง"</b>
                 </div>
             </div>
             
@@ -159,11 +164,8 @@ function openSplitEditor() {
             </div>
 
             <div class="healer-footer">
-                <div class="footer-status">
-                     <span class="tag-badge"><i class="fa-solid fa-check-double"></i> Split Mode</span>
-                </div>
                 <button id="btn-save-split" class="save-button">
-                    <span class="btn-content"><i class="fa-solid fa-floppy-disk"></i> Save</span>
+                    <span class="btn-content"><i class="fa-solid fa-floppy-disk"></i> Save Changes</span>
                 </button>
             </div>
         </div>
@@ -187,7 +189,7 @@ function openSplitEditor() {
 
     $('#btn-heal-html').on('click', () => {
         let val = $('#editor-main').val();
-        let fixed = val.split(/\n+/).map(b => b.includes('<') ? stackBasedFix(b) : b).join('\n');
+        let fixed = val.split(/\n/).map(b => b.includes('<') ? stackBasedFix(b) : b).join('\n');
         $('#editor-main').val(fixed).trigger('input');
         toastr.success("Tags Fixed!");
     });
@@ -220,7 +222,7 @@ function renderSegments() {
         container.append(`
             <div class="segment-block type-${seg.type}" data-id="${seg.id}">
                 <div class="seg-icon">${icon}</div>
-                <div class="seg-text">${seg.text.substring(0, 50)}...</div>
+                <div class="seg-text">${seg.text.substring(0, 60)}...</div>
                 ${!isThink ? '<div class="seg-badge">Start</div>' : ''} 
             </div>
         `);
@@ -287,7 +289,7 @@ const styles = `
     z-index: 99999; background: rgba(0,0,0,0.85);
     display: flex; align-items: center; justify-content: center;
     backdrop-filter: blur(4px);
-    padding: 10px; 
+    padding: 10px;
 }
 
 .html-healer-box {
@@ -304,39 +306,38 @@ const styles = `
 .healer-header {
     background: var(--lavender-dark); padding: 5px 10px;
     display: flex; justify-content: space-between; align-items: center;
-    border-bottom: 1px solid var(--lavender-border); height: 50px; flex-shrink: 0;
+    border-bottom: 1px solid var(--lavender-border); height: 55px; flex-shrink: 0;
 }
-.header-brand { 
-    display: flex; gap: 8px; align-items: center; 
-    flex: 0 1 auto; /* ให้หดได้ถ้าที่เต็ม */
-    overflow: hidden; 
-}
-.header-icon { font-size: 1.1em; color: var(--lavender-secondary); flex-shrink: 0; }
-.header-text .title { 
-    font-weight: bold; color: var(--lavender-text); font-size: 0.9em; 
-    white-space: nowrap; 
-}
+.header-brand { display: flex; gap: 8px; align-items: center; }
+.header-icon { font-size: 1.1em; color: var(--lavender-secondary); }
+.header-text .title { font-weight: bold; color: var(--lavender-text); font-size: 0.9em; }
 
+/* CONTROLS (Right Side) */
 .header-controls { 
-    display: flex; gap: 8px; align-items: center; 
-    flex-shrink: 0; /* ห้ามหดส่วนปุ่มกด */
+    display: flex; gap: 8px; align-items: center; margin-left: auto; 
+    flex-shrink: 0; /* ห้ามหด */
 }
 .close-btn { cursor: pointer; padding: 5px; color: var(--lavender-text); font-size: 1.2em; }
-
 .reset-btn {
     background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
-    color: #ddd; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 0.9em;
+    color: #ddd; border-radius: 4px; padding: 6px; cursor: pointer; font-size: 0.9em;
 }
+
+/* AUTHOR PILL */
 .author-pill {
-    display: flex; align-items: center; justify-content: center;
+    display: flex; align-items: center; gap: 6px;
     background: rgba(255, 255, 255, 0.05);
-    padding: 2px; border-radius: 50%; /* กลมดิก */
+    padding: 3px 8px; border-radius: 20px;
     border: 1px solid var(--lavender-border);
-    width: 32px; height: 32px; /* ล็อกขนาด */
-    flex-shrink: 0;
+    max-width: 150px; /* จำกัดความกว้างกันล้น */
 }
 .author-pill img {
-    width: 100%; height: 100%; border-radius: 50%; object-fit: cover;
+    width: 24px; height: 24px; border-radius: 50%; object-fit: cover;
+    flex-shrink: 0;
+}
+.author-pill .author-name {
+    font-size: 0.8em; color: var(--lavender-text); font-weight: bold;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 /* SEGMENT PICKER */
@@ -349,12 +350,13 @@ const styles = `
 .picker-instruction { font-size: 0.75em; color: #888; text-align: center; }
 
 .segment-block {
-    display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+    display: flex; align-items: center; gap: 8px; padding: 8px; /* เพิ่ม Padding ให้กดง่ายในมือถือ */
     border-radius: 4px; cursor: pointer; border: 1px solid transparent;
     font-size: 0.8em; background: rgba(255,255,255,0.03);
-    min-height: 35px;
+    position: relative;
+    min-height: 35px; /* ความสูงขั้นต่ำ */
 }
-.segment-block.type-think { border-color: var(--lavender-secondary); background: rgba(166, 177, 225, 0.1); opacity: 0.8; }
+.segment-block.type-think { border-color: var(--lavender-secondary); background: rgba(166, 177, 225, 0.1); opacity: 0.7; }
 .segment-block.type-story { border-color: rgba(152, 195, 121, 0.4); background: rgba(152, 195, 121, 0.1); font-weight: bold;}
 .seg-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ddd; }
 .seg-badge { background: #98c379; color: #222; font-size: 0.7em; padding: 1px 5px; border-radius: 4px; font-weight: bold; }
@@ -373,39 +375,35 @@ const styles = `
 .action-btn { background: none; border: 1px solid #444; color: #ccc; border-radius: 4px; cursor: pointer; font-size: 0.7em; padding: 2px 5px; }
 textarea { flex: 1; width: 100%; border: none; background: transparent; color: #eee; padding: 8px; resize: none; outline: none; font-family: monospace; font-size: 13px; }
 
-/* FOOTER (FIXED) */
+/* FOOTER */
 .healer-footer {
     padding: 8px 10px; background: var(--lavender-dark);
     border-top: 1px solid var(--lavender-border);
-    display: flex; justify-content: flex-end; /* ชิดขวาเสมอ */
+    display: flex; justify-content: center; /* จัดกึ่งกลาง */
     align-items: center;
     padding-bottom: max(8px, env(safe-area-inset-bottom));
-    min-height: 50px;
-}
-.footer-status { 
-    font-size: 0.8em; color: #888; margin-right: auto; /* ดันปุ่มไปขวา */
 }
 .save-button {
     background: var(--lavender-secondary); color: #222; border: none;
-    padding: 8px 25px; border-radius: 20px; font-weight: bold; cursor: pointer;
-    white-space: nowrap; 
-    flex-shrink: 0;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    padding: 10px 0; /* เพิ่มความสูงปุ่ม */
+    border-radius: 8px; font-weight: bold; cursor: pointer;
+    width: 100%; /* ปุ่มเต็มความกว้าง */
+    font-size: 1em;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
 }
 
-/* MOBILE SPECIFIC */
+/* MOBILE RESPONSIVE TWEAKS */
 @media screen and (max-width: 600px) {
-    .html-healer-box { border-radius: 0; border: none; }
+    /* ซ่อน Title เพื่อให้ที่เหลือสำหรับ Author */
+    .header-brand { display: none; } 
     
-    /* Header */
-    .header-text .title { font-size: 0.8em; }
+    /* ให้ Controls ขยายเต็มพื้นที่ */
+    .header-controls { width: 100%; justify-content: space-between; }
     
-    /* Segment Picker */
-    .segment-picker-area { height: 130px; }
+    .author-pill { flex: 1; justify-content: center; max-width: none; }
+    .author-pill .author-name { display: inline-block; } /* บังคับโชว์ชื่อ */
     
-    /* Footer Clean up */
-    .footer-status { display: none; } /* ซ่อน Text */
-    .save-button { width: 100%; text-align: center; font-size: 1em; padding: 10px; } /* ปุ่มเต็มจอ กดง่าย */
+    .segment-picker-area { height: 150px; }
 }
 </style>
 `;
