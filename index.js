@@ -73,7 +73,7 @@ let targetMessageId = null;
 // ⭐ME⭐
 const authorConfig = {
     name: "Zealllll",
-    avatarUrl: "TA-2025-11-27-16-04-40-cutegirlwi-3990145806-0.png" 
+    avatarUrl: "scripts/extensions/third-party/SillyTavern-FixHTML/avatar.png"
 };
 
 function openSplitEditor() {
