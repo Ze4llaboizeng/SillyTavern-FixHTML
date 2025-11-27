@@ -1,8 +1,10 @@
+// fileName: ze4llaboizeng/sillytavern-fixhtml/SillyTavern-FixHTML-main/index.js
+
 const extensionName = "html-healer";
 
 // --- 1. Logic (Block Segmentation) ---
 
-// แยกข้อความเป็นบล็อกๆ เพื่อให้ User เลือก
+// แยกข้อความเป็นบล็อกๆ และระบุประเภท (Think/Story) ตาม Logic ใหม่
 function parseSegments(rawText) {
     // Normalize Tag ก่อน
     let cleanText = rawText
@@ -12,37 +14,41 @@ function parseSegments(rawText) {
     // แยกย่อหน้าด้วย Double Newline
     const rawBlocks = cleanText.split(/\n{2,}/);
     
-    // สถานะเริ่มต้น (สมมติว่าเป็นเนื้อเรื่องก่อน)
-    let currentType = "story"; 
+    // สถานะ: เจอจุดเริ่มเนื้อเรื่องหรือยัง?
+    let foundStoryStart = false; 
     
     return rawBlocks.map((block, index) => {
         let text = block.trim();
         if (!text) return null;
 
-        // 🧠 Heuristic Logic: ระบบเดาใจเบื้องต้น (User แก้ทีหลังได้)
-        // ถ้าขึ้นต้นด้วย < และไม่ใช่ tag ปิด (เช่น </...) และไม่ใช่ tag พื้นฐานเช่น <br>, <i>
+        // Logic ใหม่: Strict Sequence (Think -> Story)
+        // ถ้าเราเคยเจอจุดเริ่ม Story ไปแล้ว บล็อกต่อๆ ไปต้องเป็น Story ทั้งหมด
+        if (foundStoryStart) {
+             return { id: index, text: text, type: "story" };
+        }
+
+        // 🧠 Heuristic Check: บล็อกนี้ดูเหมือน Think หรือไม่?
+        // เช็คว่าขึ้นต้นด้วย < และไม่ใช่ tag พื้นฐาน (เช่น <br>, <i>, <b>)
         const startsWithTag = /^<[^/](?!br|i|b|em|strong|span|div|p)[^>]*>?/i.test(text);
+        const hasThinkTag = /<think>/i.test(text);
         
-        // ถ้าเจอ <think> หรือ Tag เปิดแปลกๆ ให้เปลี่ยนโหมดเป็น Think
-        if (/<think>/i.test(text) || startsWithTag) {
-            currentType = "think";
-        }
-        
-        // ถ้าเจอ Tag ปิด </think> หรือคำสั่งปิด ให้ถือว่าเป็น Think บล็อกสุดท้าย แล้วจบ
+        // เป็น Think ถ้า: มี tag <think> หรือ ขึ้นต้นด้วย tag แปลกๆ
+        const isThinkBlock = hasThinkTag || startsWithTag;
+
+        // เช็คการปิด Think ในบล็อกนี้ (เผื่อมันจบในตัว)
         const hasClosing = /<\/think>|Close COT|End of thought/i.test(text);
-        
-        let assignedType = currentType;
 
-        // ถ้าเจอตัวปิด ในรอบหน้าให้กลับไปเป็น story
-        if (hasClosing) {
-            currentType = "story";
+        if (isThinkBlock) {
+            // ถ้าเจอปิดท้ายในบล็อกนี้ แปลว่าบล็อกถัดไปน่าจะเป็น Story แล้ว
+            if (hasClosing) {
+                foundStoryStart = true;
+            }
+            return { id: index, text: text, type: "think" };
+        } else {
+            // ถ้าไม่เข้าข่าย Think เลย แสดงว่านี่คือ "พารากราฟข้อความแรก" ของเนื้อเรื่อง
+            foundStoryStart = true;
+            return { id: index, text: text, type: "story" };
         }
-
-        return {
-            id: index,
-            text: text,
-            type: assignedType // 'story' หรือ 'think'
-        };
     }).filter(b => b !== null);
 }
 
@@ -210,10 +216,9 @@ function openSplitEditor() {
         const id = $(this).data('id');
         const seg = currentSegments.find(s => s.id === id);
         
-        // Toggle Logic
+        // Toggle Logic (Manual Override)
         seg.type = seg.type === 'think' ? 'story' : 'think';
         
-        // Re-render เฉพาะ class visual เพื่อความลื่นไหล (หรือ render ใหม่หมดก็ได้ถ้ารายการไม่เยอะ)
         renderSegments(); 
     });
 
