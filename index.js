@@ -2,47 +2,70 @@ const extensionName = "html-healer";
 const defaultDepth = 1;
 
 /**
- * 1. The Core Logic
- * Handles <think> tags specifically, then cleans standard HTML.
+ * LOGIC 1: Fix <think> tags specifically
+ * This runs BEFORE the standard HTML healer.
+ */
+function fixChainOfThought(text) {
+    if (!text) return "";
+
+    // 1. Check if we even have an opening <think>
+    if (!text.includes("<think>")) return text;
+
+    // 2. Check if it's already closed correctly
+    if (text.includes("</think>")) return text;
+
+    // 3. Define the "Stop Words" (Case Insensitive)
+    // These are the phrases the AI might use when it wants to stop thinking
+    const stopPhrases = [
+        "Close COT",
+        "CLOSE COT",
+        "close cot",
+        "End of thought",
+        "End of reasoning",
+        "Analysis complete"
+    ];
+
+    // 4. Try to find a stop phrase and insert </think> after it
+    // We create a Regex that looks for any of these phrases (case insensitive)
+    // The 'i' flag makes it case insensitive, 'g' checks globally
+    const regexPattern = new RegExp(`(${stopPhrases.join("|")})`, "i");
+    
+    // If we find a match (e.g., "Close COT"), replace it with "Close COT</think>"
+    if (regexPattern.test(text)) {
+        console.log(`[${extensionName}] Found CoT stop phrase. Closing tag.`);
+        // $1 keeps the original text (e.g., "Close COT") and adds the tag
+        return text.replace(regexPattern, "$1</think>");
+    }
+
+    // 5. Fallback: If no stop phrase is found, close it at the very end
+    // This prevents the thought from hiding the entire message
+    console.log(`[${extensionName}] No stop phrase found. Force closing <think> at end.`);
+    return text + "\n</think>";
+}
+
+/**
+ * LOGIC 2: Standard HTML Healer (<div>, <span>, etc.)
  */
 function healHtml(dirtyHtml) {
     if (!dirtyHtml) return "";
 
-    let patched = dirtyHtml;
+    // Run the CoT Fixer FIRST
+    let preProcessed = fixChainOfThought(dirtyHtml);
 
-    // --- STEP A: Fix "Close COT" hallucinations ---
-    // If the AI types "Close COT" or "End Thought" instead of the tag, we fix it.
-    // The 'gi' flag makes it case-insensitive (detects "close cot", "CLOSE COT", etc.)
-    patched = patched.replace(/Close COT/gi, '</think>');
-    patched = patched.replace(/End Thought/gi, '</think>');
-
-    // --- STEP B: Force Close <think> tags ---
-    // We count how many times <think> appears versus </think>
-    const openThinkCount = (patched.match(/<think>/g) || []).length;
-    const closeThinkCount = (patched.match(/<\/think>/g) || []).length;
-
-    // If there are more opens than closes, we append the missing closes to the end
-    if (openThinkCount > closeThinkCount) {
-        const missing = openThinkCount - closeThinkCount;
-        // Add a newline to ensure it doesn't merge with the last word
-        patched += "\n" + "</think>".repeat(missing);
-    }
-
-    // --- STEP C: Standard HTML Fixing (Divs, Spans, Colors) ---
     const parser = new DOMParser();
-    const doc = parser.parseFromString(patched, 'text/html');
+    const doc = parser.parseFromString(preProcessed, 'text/html');
     
-    // Safety: Remove script tags
+    // Safety: Remove scripts
     const scripts = doc.getElementsByTagName('script');
     for (let i = scripts.length - 1; i >= 0; i--) {
         scripts[i].parentNode.removeChild(scripts[i]);
     }
-
+    
     return doc.body.innerHTML;
 }
 
 /**
- * 2. The Fix Action (Loop through messages)
+ * ACTION: Loop through messages and fix them
  */
 async function fixMessages() {
     const context = SillyTavern.getContext();
@@ -53,21 +76,20 @@ async function fixMessages() {
         return;
     }
 
-    // Get depth from input box
     let depth = parseInt($('#html-healer-depth').val());
     if (isNaN(depth) || depth < 1) depth = 1;
 
     let fixCount = 0;
     
-    // Loop backwards
     for (let i = 0; i < depth; i++) {
         const targetIndex = chat.length - 1 - i;
         if (targetIndex < 0) break;
 
         const originalMes = chat[targetIndex].mes;
+        
+        // This runs both the CoT Fixer AND the HTML Fixer
         const healedMes = healHtml(originalMes);
 
-        // Update only if changed
         if (originalMes !== healedMes) {
             chat[targetIndex].mes = healedMes;
             fixCount++;
@@ -75,30 +97,30 @@ async function fixMessages() {
     }
 
     if (fixCount === 0) {
-        toastr.info(`Scanned ${depth} messages. No unclosed tags found.`);
+        toastr.info(`Checked last ${depth} messages. No broken CoT or HTML found.`);
     } else {
         await context.saveChat();
         await context.reloadCurrentChat();
-        toastr.success(`Fixed ${fixCount} message(s)! <think> tags closed.`);
+        toastr.success(`Repaired ${fixCount} message(s)!`, "HTML Healer");
     }
 }
 
 /**
- * 3. The UI (Settings Menu)
+ * UI: Settings Menu
  */
 function loadSettings() {
     const settingsHtml = `
     <div class="html-healer-settings">
         <div class="inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header">
-                <b>HTML Healer</b>
+                <b>HTML & CoT Healer</b>
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
             
             <div class="inline-drawer-content">
                 <div class="styled_description_block">
-                    Fixes unclosed &lt;div&gt; and &lt;think&gt; tags. 
-                    <br>Also converts "Close COT" text to tags.
+                    Closes broken &lt;think&gt; tags and HTML divs.<br>
+                    Detects "Close COT" phrases.
                 </div>
                 
                 <div class="healer-controls">
@@ -107,7 +129,7 @@ function loadSettings() {
                 </div>
 
                 <div id="html-healer-btn" class="menu_button">
-                    <i class="fa-solid fa-wand-magic-sparkles"></i> Fix HTML & COT
+                    <i class="fa-solid fa-brain"></i> Fix Logic & HTML
                 </div>
             </div>
         </div>
@@ -115,13 +137,10 @@ function loadSettings() {
     `;
 
     $('#extensions_settings').append(settingsHtml);
-
-    $('#html-healer-btn').on('click', () => {
-        fixMessages();
-    });
+    $('#html-healer-btn').on('click', () => fixMessages());
 }
 
 jQuery(async () => {
     loadSettings();
-    console.log(`[${extensionName}] Ready to fix <think> tags.`);
+    console.log(`[${extensionName}] Ready to fix CoT.`);
 });
