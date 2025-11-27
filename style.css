@@ -4,28 +4,33 @@
     padding-top: 10px;
 }
 
-/* Control Container */
-.healer-controls {
+.healer-controls-grid {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
     margin: 10px 0;
     padding: 0 5px;
 }
 
-/* The Label */
-.healer-controls label {
+.control-item {
+    display: flex;
+    flex-direction: column;
+}
+
+.control-item label {
     font-weight: bold;
-    font-size: 0.9em;
+    font-size: 0.85em;
+    margin-bottom: 4px;
 }
 
-/* The Input Box */
-.healer-controls input {
-    width: 60px;
-    text-align: center;
+.control-item.full-width {
+    width: 100%;
 }
 
-/* The Button */
+.control-item input {
+    padding: 5px;
+}
+
 .html-healer-settings .menu_button {
     background-color: var(--smart-theme-color, #4caf50);
     color: var(--smart-theme-text, #ffffff);
@@ -47,4 +52,9 @@
     opacity: 0.7;
     font-size: 0.85rem;
     padding: 0 5px;
+}
+
+.html-healer-settings small {
+    opacity: 0.5;
+    font-size: 0.75em;
 }
