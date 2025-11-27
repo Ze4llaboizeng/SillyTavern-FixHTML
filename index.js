@@ -92,7 +92,7 @@ function openSplitEditor() {
 
     const modalHtml = `
     <div id="html-healer-modal" class="html-healer-overlay">
-        <div class="html-healer-box">
+        <div class="html-healer-box purple-theme">
             
             <div class="healer-header">
                 <div class="header-left">
@@ -110,23 +110,27 @@ function openSplitEditor() {
                     <button class="tab-btn" onclick="switchTab('preview')"><i class="fa-solid fa-eye"></i> ตัวอย่าง</button>
                 </div>
                 
-                <div class="close-btn" onclick="$('#html-healer-modal').remove()">✖</div>
+                <div class="close-btn" id="btn-close-modal" title="Close (Esc)">✖</div>
             </div>
             
             <div class="healer-body">
                 <div id="view-editor" class="view-section active">
                     <div class="input-container think-theme">
                         <div class="input-label">
-                            <span>🧠 ความคิด (Thinking)</span>
-                            <span class="tip">ระบบแยกให้แล้ว</span>
+                            <span class="label-text">🧠 ความคิด (Thinking)</span>
+                            <div class="tools">
+                                <button class="tool-btn icon-only" id="btn-copy-cot" title="Copy Thinking"><i class="fa-regular fa-copy"></i></button>
+                                <button class="tool-btn icon-only" id="btn-clear-cot" title="Clear Thinking"><i class="fa-solid fa-eraser"></i></button>
+                            </div>
                         </div>
                         <textarea id="editor-cot" placeholder="ยังไม่มีความคิด...">${parts.cot}</textarea>
                     </div>
 
                     <div class="input-container main-theme">
                         <div class="input-label">
-                            <span>💬 เนื้อเรื่อง (Story)</span>
+                            <span class="label-text">💬 เนื้อเรื่อง (Story)</span>
                             <div class="tools">
+                                <button class="tool-btn icon-only" id="btn-copy-main" title="Copy Story"><i class="fa-regular fa-copy"></i></button>
                                 <button class="tool-btn" id="btn-heal-html"><i class="fa-solid fa-wrench"></i> ซ่อม HTML</button>
                             </div>
                         </div>
@@ -148,9 +152,10 @@ function openSplitEditor() {
                 </div>
 
                 <div class="status-bar" id="healer-status">
-                    ${parts.type === 'phrase_split' ? '⚡ Auto-Split Active' : ''}
+                    <span class="shortcut-hint desktop-only">Tip: Ctrl+Enter to Save, Esc to Close</span>
+                    ${parts.type === 'phrase_split' ? ' • ⚡ Auto-Split Active' : ''}
                 </div>
-                <button id="btn-save-split" class="save-button">
+                <button id="btn-save-split" class="save-button" title="Save (Ctrl+Enter)">
                     <i class="fa-solid fa-floppy-disk"></i> บันทึก
                 </button>
             </div>
@@ -160,6 +165,9 @@ function openSplitEditor() {
 
     $(document.body).append(modalHtml);
     
+    // Auto-focus main text for convenience
+    setTimeout(() => $('#editor-main').focus(), 100);
+
     // --- Logic UI ---
     window.switchTab = function(tabName) {
         $('.tab-btn').removeClass('active');
@@ -197,6 +205,7 @@ function openSplitEditor() {
     });
     updatePreview();
 
+    // -- Tools --
     $('#btn-heal-html').on('click', () => {
         let val = $('#editor-main').val();
         let fixed = healHtmlContent(val);
@@ -205,7 +214,26 @@ function openSplitEditor() {
         updatePreview();
     });
 
-    $('#btn-save-split').on('click', async () => {
+    const copyToClipboard = (text) => {
+        navigator.clipboard.writeText(text).then(() => {
+            toastr.success("Copied to clipboard!");
+        });
+    };
+    $('#btn-copy-cot').on('click', () => copyToClipboard($('#editor-cot').val()));
+    $('#btn-copy-main').on('click', () => copyToClipboard($('#editor-main').val()));
+    
+    $('#btn-clear-cot').on('click', () => {
+        if(confirm("ลบข้อความในส่วน Thinking ทั้งหมด?")) {
+            $('#editor-cot').val('');
+            updatePreview();
+        }
+    });
+
+    // -- Save & Close --
+    const closeModal = () => $('#html-healer-modal').remove();
+    $('#btn-close-modal').on('click', closeModal);
+
+    const saveData = async () => {
         const cot = $('#editor-cot').val().trim();
         const main = $('#editor-main').val();
 
@@ -223,7 +251,30 @@ function openSplitEditor() {
             await context.reloadCurrentChat();
             toastr.success("Saved!");
         }
-        $('#html-healer-modal').remove();
+        closeModal();
+    };
+
+    $('#btn-save-split').on('click', saveData);
+
+    // -- Keyboard Shortcuts --
+    const handleKeydown = (e) => {
+        // Ctrl + Enter to Save
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            saveData();
+        }
+        // Esc to Close
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeModal();
+        }
+    };
+    $(window).on('keydown', handleKeydown);
+    
+    // Clean up event listener when modal is removed
+    const originalRemove = $.fn.remove;
+    $('#html-healer-modal').one('remove', function() {
+        $(window).off('keydown', handleKeydown);
     });
 }
 
@@ -248,172 +299,193 @@ function loadSettings() {
     $('#html-healer-open-split').on('click', openSplitEditor);
 }
 
-// --- CSS ---
+// --- CSS (Updated to Light Purple / Lavender Theme) ---
 const styles = `
 <style>
+/* --- THEME VARIABLES: PASTEL PURPLE --- */
+:root {
+    --healer-bg: #2b2633;            /* Dark Purple Gray Background */
+    --healer-panel-bg: #363040;      /* Slightly Lighter Panel */
+    --healer-accent: #b39ddb;        /* Pastel Purple Accent */
+    --healer-accent-hover: #d1c4e9;  /* Lighter Accent */
+    --healer-text: #ede7f6;          /* Very Light Purple Text */
+    --healer-border: #5e5470;        /* Muted Purple Border */
+    --healer-think-bg: rgba(103, 58, 183, 0.15);
+    --healer-think-border: #9575cd;
+}
+
 /* CORE */
 .html-healer-box * { box-sizing: border-box; }
 .html-healer-overlay {
     position: fixed !important; top: 0; left: 0; width: 100vw; 
     height: 100vh; height: 100dvh; 
-    z-index: 99999 !important; background: rgba(0,0,0,0.85);
+    z-index: 99999 !important; background: rgba(20, 15, 25, 0.85); /* Darker overlay */
     display: flex; align-items: center; justify-content: center;
-    backdrop-filter: blur(4px);
+    backdrop-filter: blur(5px);
 }
 
 .html-healer-box {
     width: 95%; max-width: 1200px; height: 90vh;
-    background: var(--smart-background-color, #1e1e1e);
-    border: 1px solid #444; border-radius: 12px;
+    background: var(--healer-bg);
+    color: var(--healer-text);
+    border: 1px solid var(--healer-border); 
+    border-radius: 16px;
     display: flex; flex-direction: column;
-    box-shadow: 0 0 50px rgba(0,0,0,0.6);
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
     overflow: hidden;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
-/* HEADER & AUTHOR BADGE */
+/* HEADER */
 .healer-header {
-    background: #252525; padding: 10px 15px;
+    background: linear-gradient(90deg, #4a3b69 0%, #363040 100%);
+    padding: 0 20px; height: 65px; flex-shrink: 0;
     display: flex; align-items: center; justify-content: space-between;
-    border-bottom: 1px solid #444; height: 60px; flex-shrink: 0;
+    border-bottom: 1px solid var(--healer-border);
 }
-.header-left { display: flex; align-items: center; gap: 15px; }
-.header-title { font-size: 1.2em; font-weight: bold; color: #fff; display: flex; align-items: center; gap: 10px; }
+.header-title { 
+    font-size: 1.3em; font-weight: bold; color: #fff; 
+    display: flex; align-items: center; gap: 10px; 
+    text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
 
-/* Author Style */
+/* Author Badge */
 .author-badge {
     display: flex; align-items: center; gap: 8px;
-    background: rgba(255, 255, 255, 0.1);
-    padding: 4px 10px; border-radius: 20px;
-    font-size: 0.8em; color: #aaa; border: 1px solid rgba(255,255,255,0.1);
-    white-space: nowrap; 
+    background: rgba(255, 255, 255, 0.15);
+    padding: 5px 12px; border-radius: 20px;
+    font-size: 0.85em; color: #d1c4e9; border: 1px solid rgba(255,255,255,0.1);
 }
 .author-img {
-    width: 20px; height: 20px; border-radius: 50%; object-fit: cover;
-    border: 1px solid #666;
+    width: 24px; height: 24px; border-radius: 50%; object-fit: cover;
+    border: 2px solid rgba(255,255,255,0.3);
 }
 
-.close-btn { font-size: 1.5em; cursor: pointer; color: #ff6b6b; padding: 0 10px; }
+.close-btn { 
+    font-size: 1.2em; cursor: pointer; color: #ffab91; 
+    transition: 0.2s; width: 30px; height: 30px; 
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+}
+.close-btn:hover { background: rgba(255, 255, 255, 0.1); color: #ff8a65; }
 
-.mobile-tabs { display: none; gap: 8px; background: #333; padding: 4px; border-radius: 20px; }
+/* TABS (Mobile) */
+.mobile-tabs { display: none; gap: 8px; background: rgba(0,0,0,0.2); padding: 4px; border-radius: 20px; }
 .tab-btn {
     background: transparent; border: none; color: #aaa;
-    padding: 6px 14px; border-radius: 16px; cursor: pointer; font-weight: bold; font-size: 0.9em;
+    padding: 6px 16px; border-radius: 16px; cursor: pointer; font-weight: bold; font-size: 0.9em;
 }
-.tab-btn.active { background: var(--smart-theme-color, #6a5acd); color: white; }
+.tab-btn.active { background: var(--healer-accent); color: #2b2633; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
 
 /* BODY */
-.healer-body { flex: 1; overflow: hidden; position: relative; display: flex; }
+.healer-body { flex: 1; overflow: hidden; position: relative; display: flex; background: var(--healer-bg); }
 .view-section { 
-    flex: 1; display: flex; flex-direction: column; padding: 15px; gap: 15px; overflow-y: auto; 
+    flex: 1; display: flex; flex-direction: column; padding: 20px; gap: 15px; overflow-y: auto; 
     height: 100%;
 }
 
 .input-container {
     display: flex; flex-direction: column; flex: 1;
-    border-radius: 8px; padding: 2px;
+    border-radius: 12px; overflow: hidden;
+    background: var(--healer-panel-bg);
+    border: 1px solid var(--healer-border);
+    transition: border-color 0.2s;
 }
-.input-container.think-theme { border: 2px solid #6a5acd; background: rgba(106, 90, 205, 0.05); }
-.input-container.main-theme { border: 2px solid #444; }
+.input-container:focus-within { border-color: var(--healer-accent); }
+
+/* Special Themes */
+.input-container.think-theme { 
+    border: 1px solid var(--healer-think-border); 
+    background: rgba(45, 40, 60, 0.5);
+}
+.input-container.think-theme .input-label { background: rgba(103, 58, 183, 0.2); color: #d1c4e9; }
+.input-container.main-theme .input-label { background: rgba(0,0,0,0.2); }
 
 .input-label {
-    padding: 8px 12px; font-weight: bold; color: #ddd;
+    padding: 10px 15px; font-weight: bold; color: var(--healer-text);
     display: flex; justify-content: space-between; align-items: center;
-    background: rgba(0,0,0,0.2); border-radius: 6px 6px 0 0;
+    font-size: 0.9em; letter-spacing: 0.5px;
 }
-.input-label .tip { font-size: 0.75em; color: #aaa; font-weight: normal; }
+.tools { display: flex; gap: 8px; }
 .tool-btn {
-    background: #444; border: none; color: white; border-radius: 4px;
-    padding: 4px 10px; font-size: 0.8em; cursor: pointer; display: flex; gap: 5px; align-items: center;
+    background: rgba(255,255,255,0.1); border: 1px solid transparent; 
+    color: var(--healer-text); border-radius: 6px;
+    padding: 4px 10px; font-size: 0.8em; cursor: pointer; display: flex; gap: 6px; align-items: center;
+    transition: 0.2s;
 }
-.tool-btn:hover { background: #555; }
+.tool-btn:hover { background: var(--healer-accent); color: #2b2633; }
+.tool-btn.icon-only { padding: 4px 8px; }
 
 textarea {
     flex: 1; width: 100%; border: none; background: transparent;
-    color: var(--smart-text-color, #eee); padding: 12px; resize: none;
-    font-family: monospace; font-size: 14px; outline: none; line-height: 1.5;
+    color: var(--healer-text); padding: 15px; resize: none;
+    font-family: 'Consolas', 'Monaco', monospace; font-size: 14px; outline: none; line-height: 1.6;
 }
+textarea::placeholder { color: rgba(255,255,255,0.2); }
 
+/* PREVIEW */
 .preview-container { 
-    height: 100%; overflow-y: auto; background: rgba(0,0,0,0.2); 
-    border-radius: 8px; padding: 20px; border: 1px solid #444; 
+    height: 100%; overflow-y: auto; background: rgba(0,0,0,0.15); 
+    border-radius: 12px; padding: 25px; border: 1px solid var(--healer-border); 
 }
 .preview-think-bubble {
-    background: rgba(106, 90, 205, 0.1); border-left: 4px solid #6a5acd;
-    padding: 15px; margin-bottom: 20px; border-radius: 4px;
-    color: #ccc; font-style: italic;
+    background: var(--healer-think-bg); 
+    border-left: 4px solid var(--healer-think-border);
+    padding: 15px 20px; margin-bottom: 25px; border-radius: 0 8px 8px 0;
+    color: #d1c4e9; font-style: italic; line-height: 1.5;
 }
 .bubble-label { 
-    font-weight: bold; color: #6a5acd; font-style: normal; 
-    font-size: 0.8em; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;
+    font-weight: bold; color: var(--healer-accent); font-style: normal; 
+    font-size: 0.75em; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px;
 }
-.preview-main { color: var(--smart-text-color, #eee); line-height: 1.6; }
+.preview-main { color: var(--healer-text); line-height: 1.7; font-size: 1.05em; }
 
 /* FOOTER */
 .healer-footer {
-    height: auto; min-height: 60px; /* ยืดหยุ่นได้ */
-    background: #252525; border-top: 1px solid #444;
+    background: #2b2633; border-top: 1px solid var(--healer-border);
     display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 15px; flex-shrink: 0; gap: 10px;
-    /* 🔴 รองรับ iPhone รุ่นใหม่ที่มีขีดล่าง */
-    padding-bottom: max(10px, env(safe-area-inset-bottom));
+    padding: 15px 20px; flex-shrink: 0; gap: 10px;
+    padding-bottom: max(15px, env(safe-area-inset-bottom));
 }
-.status-bar { font-size: 0.9em; color: #ffab40; font-weight: 500; margin-left: auto; margin-right: 15px;}
-.save-button {
-    background: var(--smart-theme-color, #4caf50); color: white;
-    border: none; padding: 10px 30px; border-radius: 20px;
-    font-weight: bold; font-size: 1em; cursor: pointer;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    white-space: nowrap; flex-shrink: 0;
-}
-.save-button:hover { filter: brightness(1.1); transform: translateY(-2px); }
+.status-bar { font-size: 0.85em; color: #9fa8da; margin-left: auto; margin-right: 20px; opacity: 0.8;}
+.shortcut-hint { margin-right: 15px; font-style: italic; color: #777; }
 
-/* VISIBILITY UTILS */
+.save-button {
+    background: linear-gradient(135deg, #7e57c2 0%, #673ab7 100%); 
+    color: white; border: none; padding: 10px 35px; border-radius: 25px;
+    font-weight: bold; font-size: 1em; cursor: pointer;
+    box-shadow: 0 4px 15px rgba(103, 58, 183, 0.4);
+    white-space: nowrap; flex-shrink: 0; transition: transform 0.2s, box-shadow 0.2s;
+}
+.save-button:hover { 
+    transform: translateY(-2px); 
+    box-shadow: 0 6px 20px rgba(103, 58, 183, 0.6);
+    filter: brightness(1.1);
+}
+
+/* RESPONSIVE */
 .desktop-only { display: flex; }
 .mobile-only { display: none; }
 
-/* --- MOBILE TWEAKS (แก้ใหม่) --- */
 @media screen and (max-width: 768px) {
-    /* 🔴 ปรับกล่องให้เต็มจอแบบ 100dvh (Dynamic Viewport Height) */
-    .html-healer-box { 
-        width: 100%; height: 100dvh; 
-        border-radius: 0; border: none; 
-    }
-    
-    /* Header: ซ่อนฝั่งซ้ายทิ้งไปเลย เพื่อให้ Tabs ชิดซ้าย */
+    .html-healer-box { width: 100%; height: 100dvh; border-radius: 0; border: none; }
     .header-left { display: none !important; } 
-    .header-title { display: none; }
     .desktop-only { display: none; }
-    
-    /* Show Mobile Tabs */
     .mobile-tabs { display: flex; }
     
-    /* Body & Layout */
-    .view-section { display: none; padding: 10px; }
+    .view-section { display: none; padding: 15px; }
     .view-section.active { display: flex; }
-    .input-container { min-height: 40%; }
     
-    /* Fonts & Inputs */
-    textarea { font-size: 16px; } /* 16px ป้องกัน iOS Zoom */
-    
-    /* Footer & Badge */
-    /* 🔴 บังคับให้ badge แสดงผลใน footer และจัด layout ให้สวย */
-    .mobile-only { 
-        display: flex !important; 
-        align-items: center;
-        margin-right: auto; 
-        max-width: 50%; 
-        overflow: hidden; 
-    }
-    
-    .author-badge { padding: 4px 8px; font-size: 0.75em; } 
-    .save-button { padding: 8px 16px; font-size: 0.9em; } 
+    textarea { font-size: 16px; } 
+    .mobile-only { display: flex !important; margin-right: auto; }
     .status-bar { display: none; }
+    .save-button { padding: 10px 25px; }
 }
 
 @media screen and (min-width: 769px) {
     .healer-body { flex-direction: row; }
     .view-section { display: flex !important; width: 50%; }
-    #view-preview { border-left: 1px solid #444; }
+    #view-preview { border-left: 1px solid var(--healer-border); }
     .mobile-tabs { display: none !important; }
 }
 </style>
@@ -422,5 +494,5 @@ $('head').append(styles);
 
 jQuery(async () => {
     loadSettings();
-    console.log(`[${extensionName}] Ready (Author Badge Version).`);
+    console.log(`[${extensionName}] Ready (Lavender Theme).`);
 });
