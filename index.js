@@ -1,22 +1,27 @@
 const extensionName = "html-healer";
 
-// --- Helper: แยกส่วนประกอบข้อความ ---
+// --- Helper: แยกส่วนประกอบ (เหมือนเดิม) ---
 function splitContent(rawText) {
-    const match = rawText.match(/<think>([\s\S]*?)<\/think>/i);
+    // พยายามแกะ encoded tags ก่อนเผื่อโมเดลส่งมาผิด
+    let cleanText = rawText
+        .replace(/&lt;think&gt;/gi, "<think>")
+        .replace(/&lt;\/think&gt;/gi, "</think>");
+
+    const match = cleanText.match(/<think>([\s\S]*?)<\/think>/i);
     if (match) {
         return {
             cot: match[1].trim(),
-            main: rawText.replace(match[0], "").trim()
+            main: cleanText.replace(match[0], "").trim()
         };
     }
-    const openIndex = rawText.search(/<think>/i);
+    const openIndex = cleanText.search(/<think>/i);
     if (openIndex !== -1) {
         return {
-            cot: rawText.substring(openIndex + 7).trim(),
-            main: rawText.substring(0, openIndex).trim()
+            cot: cleanText.substring(openIndex + 7).trim(),
+            main: cleanText.substring(0, openIndex).trim()
         };
     }
-    return { cot: "", main: rawText };
+    return { cot: "", main: cleanText };
 }
 
 // --- Helper: ซ่อม HTML ---
@@ -44,7 +49,6 @@ function openSplitEditor() {
     const originalText = chat[lastIndex].mes;
     const parts = splitContent(originalText);
 
-    // HTML สำหรับหน้าต่าง Modal พร้อมช่อง Preview
     const modalHtml = `
     <div id="html-healer-modal" class="html-healer-overlay">
         <div class="html-healer-box split-mode">
@@ -58,15 +62,18 @@ function openSplitEditor() {
                     <div class="editor-section">
                         <div class="section-label">
                             <span><i class="fa-solid fa-brain"></i> Thinking Process</span>
-                            <div class="mini-btn" id="btn-clean-cot">Trim</div>
+                            <div class="mini-btn" id="btn-clean-cot" title="Remove <tags> inside logic">Clean Tags</div>
                         </div>
-                        <textarea id="editor-cot" placeholder="Thinking content...">${parts.cot}</textarea>
+                        <textarea id="editor-cot" placeholder="Logic content...">${parts.cot}</textarea>
                     </div>
 
                     <div class="editor-section">
                         <div class="section-label">
                             <span><i class="fa-solid fa-comment-dots"></i> Main Content</span>
-                            <div class="mini-btn" id="btn-heal-html">Fix HTML</div>
+                            <div class="btn-group">
+                                <div class="mini-btn" id="btn-find-tag" title="Find next < > or think tag">🔍 Find Tag</div>
+                                <div class="mini-btn" id="btn-heal-html" title="Fix broken HTML">Fix HTML</div>
+                            </div>
                         </div>
                         <textarea id="editor-main" placeholder="Story content...">${parts.main}</textarea>
                     </div>
@@ -74,16 +81,14 @@ function openSplitEditor() {
 
                 <div class="preview-column">
                     <div class="section-label">
-                        <span><i class="fa-solid fa-eye"></i> Live Render Preview</span>
+                        <span><i class="fa-solid fa-eye"></i> Live Render</span>
                     </div>
                     <div id="healer-preview-box" class="preview-content"></div>
                 </div>
             </div>
 
             <div class="healer-footer">
-                <div style="font-size: 0.8em; opacity: 0.7; margin-right: auto;">
-                    *Preview simulates how the thought box will look.
-                </div>
+                <div id="healer-status" style="font-size: 0.8em; opacity: 0.7; margin-right: auto; color: #ffab40;"></div>
                 <button id="btn-save-split" class="menu_button">💾 Merge & Save</button>
             </div>
         </div>
@@ -92,28 +97,21 @@ function openSplitEditor() {
 
     $('body').append(modalHtml);
     
-    // ฟังก์ชั่นอัปเดต Preview
+    // --- ฟังก์ชันช่วยเหลือ ---
+    
+    // 1. Live Preview
     const updatePreview = () => {
         const cot = $('#editor-cot').val().trim();
         const main = $('#editor-main').val();
         let previewHtml = "";
-        
-        // ถ้ามี CoT ให้สร้างแท็ก think เพื่อให้ CSS จับ
-        if (cot) {
-            previewHtml += `<think>${cot.replace(/\n/g, "<br>")}</think>`;
-        }
-        previewHtml += main; // ส่วน main เป็น HTML อยู่แล้ว
-        
+        if (cot) previewHtml += `<think>${cot.replace(/\n/g, "<br>")}</think>`;
+        previewHtml += main;
         $('#healer-preview-box').html(previewHtml);
     };
-
-    // เรียก Preview ครั้งแรก
     updatePreview();
-
-    // Bind Events: พิมพ์ปุ๊บ แก้ปั๊บ
     $('#editor-cot, #editor-main').on('input', updatePreview);
 
-    // Event: Clean CoT
+    // 2. Clean CoT
     $('#btn-clean-cot').on('click', () => {
         let val = $('#editor-cot').val();
         val = val.replace(/<\/?think>/gi, "").trim();
@@ -121,7 +119,7 @@ function openSplitEditor() {
         updatePreview();
     });
 
-    // Event: Heal HTML
+    // 3. Heal HTML
     $('#btn-heal-html').on('click', () => {
         let val = $('#editor-main').val();
         let fixed = healHtmlContent(val);
@@ -130,10 +128,49 @@ function openSplitEditor() {
         toastr.success("HTML Repaired!");
     });
 
-    // Event: Save
+    // 4. ✨ NEW: Tag Finder (นักล่าแท็ก) ✨
+    $('#btn-find-tag').on('click', () => {
+        const textarea = document.getElementById('editor-main');
+        const text = textarea.value;
+        const cursorPos = textarea.selectionEnd; // เริ่มหาจากตำแหน่ง cursor ปัจจุบัน
+
+        // Pattern ที่จะหา: <think>, </think>, <, > หรือ encoded tags
+        const regex = /<think>|<\/think>|<|>|&lt;|&gt;/gi;
+        
+        // เซ็ตตำแหน่งเริ่มค้นหา
+        regex.lastIndex = cursorPos; 
+        
+        let match = regex.exec(text);
+        
+        // ถ้าไม่เจอข้างหน้า ให้วนกลับไปหาใหม่ตั้งแต่ต้น
+        if (!match) {
+            regex.lastIndex = 0;
+            match = regex.exec(text);
+        }
+
+        if (match) {
+            // เจอแล้ว! ทำการ Highlight
+            textarea.focus();
+            textarea.setSelectionRange(match.index, match.index + match[0].length);
+            
+            // แจ้งเตือนเล็กน้อย
+            $('#healer-status').text(`Found: "${match[0]}" at pos ${match.index}`);
+        } else {
+            toastr.info("No more tags found.");
+            $('#healer-status').text("No tags found.");
+        }
+    });
+
+    // 5. Save with Safety Check
     $('#btn-save-split').on('click', async () => {
         const cot = $('#editor-cot').val().trim();
         const main = $('#editor-main').val();
+
+        // Safety Check: ถ้าใน Main ยังมี <think> หลงเหลืออยู่
+        if (/<think>/i.test(main)) {
+            const confirmSave = confirm("⚠️ Warning: I detected a <think> tag inside the Main Content box.\n\nUsually, this should be moved to the top box.\n\nDo you want to save anyway?");
+            if (!confirmSave) return; // ยกเลิกการเซฟ ให้ user ไปแก้ก่อน
+        }
         
         let finalMes = "";
         if (cot) finalMes += `<think>\n${cot}\n</think>\n`;
@@ -142,18 +179,14 @@ function openSplitEditor() {
         if (chat[targetMessageId].mes !== finalMes) {
             chat[targetMessageId].mes = finalMes;
             await context.saveChat();
-            
-            // Force Reload UI แบบชุดใหญ่เพื่อให้กล่องขึ้น
-            await context.reloadCurrentChat(); 
-            toastr.success("Saved & Reloaded!");
+            await context.reloadCurrentChat();
+            toastr.success("Saved!");
         }
         $('#html-healer-modal').remove();
     });
 }
 
-/**
- * UI: Settings Menu
- */
+/** UI Loading */
 function loadSettings() {
     if ($('.html-healer-settings').length > 0) return;
     const settingsHtml = `
@@ -165,10 +198,10 @@ function loadSettings() {
             </div>
             <div class="inline-drawer-content">
                 <div class="styled_description_block">
-                    Split editor with Live Preview for Thinking Process.
+                    Manual split editor with Tag Hunter & Live Preview.
                 </div>
                 <div id="html-healer-open-split" class="menu_button">
-                    <i class="fa-solid fa-columns"></i> Open Split Editor
+                    <i class="fa-solid fa-file-medical"></i> Open Split Editor
                 </div>
             </div>
         </div>
@@ -178,7 +211,7 @@ function loadSettings() {
     $('#html-healer-open-split').on('click', openSplitEditor);
 }
 
-// CSS Style (รวม CSS สำหรับจำลองกล่อง think ในหน้า Preview)
+// CSS
 const styles = `
 <style>
 .html-healer-overlay {
@@ -197,59 +230,17 @@ const styles = `
 .healer-header { display: flex; justify-content: space-between; margin-bottom: 10px; border-bottom: 1px solid #444; padding-bottom: 5px;}
 .healer-header h3 { margin: 0; color: var(--smart-text-color, #eee); }
 .close-btn { cursor: pointer; font-size: 1.2em; color: #ff5555; }
-
-/* Grid Layout */
-.healer-body-grid { 
-    flex: 1; display: flex; gap: 15px; overflow: hidden; 
-}
+.healer-body-grid { flex: 1; display: flex; gap: 15px; overflow: hidden; }
 .edit-column { flex: 1; display: flex; flex-direction: column; gap: 10px; }
-.preview-column { 
-    flex: 1; display: flex; flex-direction: column; 
-    border-left: 1px solid #444; padding-left: 15px; 
-}
-
+.preview-column { flex: 1; display: flex; flex-direction: column; border-left: 1px solid #444; padding-left: 15px; }
 .editor-section { display: flex; flex-direction: column; flex: 1; }
-.section-label { 
-    display: flex; justify-content: space-between; align-items: center; 
-    margin-bottom: 5px; font-weight: bold; color: var(--smart-text-color);
-}
-.mini-btn {
-    background: #444; color: white; padding: 2px 8px; border-radius: 4px; 
-    font-size: 0.8em; cursor: pointer; border: 1px solid #666;
-}
+.section-label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; font-weight: bold; color: var(--smart-text-color); }
+.btn-group { display: flex; gap: 5px; }
+.mini-btn { background: #444; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; cursor: pointer; border: 1px solid #666; }
 .mini-btn:hover { background: #666; }
-
-textarea { 
-    flex: 1; resize: none; 
-    background: rgba(0,0,0,0.2); color: var(--smart-text-color, #ccc);
-    border: 1px solid var(--smart-border-color, #555);
-    font-family: monospace; padding: 10px; border-radius: 5px;
-    line-height: 1.4;
-}
-
-/* Preview Styles */
-.preview-content {
-    flex: 1; overflow-y: auto; 
-    background: rgba(0, 0, 0, 0.15);
-    border: 1px solid var(--smart-border-color, #444);
-    border-radius: 5px; padding: 15px;
-    color: var(--smart-text-color, #ccc);
-    font-family: sans-serif;
-    line-height: 1.5;
-}
-
-/* SIMULATE THINK BOX IN PREVIEW */
-.preview-content think {
-    display: block;
-    background-color: rgba(128, 128, 128, 0.1);
-    border-left: 4px solid rgba(128, 128, 128, 0.5);
-    padding: 10px;
-    margin: 10px 0;
-    font-style: italic;
-    opacity: 0.8;
-    border-radius: 4px;
-}
-
+textarea { flex: 1; resize: none; background: rgba(0,0,0,0.2); color: var(--smart-text-color, #ccc); border: 1px solid var(--smart-border-color, #555); font-family: monospace; padding: 10px; border-radius: 5px; line-height: 1.4; }
+.preview-content { flex: 1; overflow-y: auto; background: rgba(0, 0, 0, 0.15); border: 1px solid var(--smart-border-color, #444); border-radius: 5px; padding: 15px; color: var(--smart-text-color, #ccc); font-family: sans-serif; line-height: 1.5; }
+.preview-content think { display: block; background-color: rgba(128, 128, 128, 0.1); border-left: 4px solid rgba(128, 128, 128, 0.5); padding: 10px; margin: 10px 0; font-style: italic; opacity: 0.8; border-radius: 4px; }
 .healer-footer { margin-top: 15px; display: flex; align-items: center; }
 </style>
 `;
@@ -257,5 +248,5 @@ $('head').append(styles);
 
 jQuery(async () => {
     loadSettings();
-    console.log(`[${extensionName}] Ready (Live Preview Mode).`);
+    console.log(`[${extensionName}] Ready (Tag Hunter Mode).`);
 });
