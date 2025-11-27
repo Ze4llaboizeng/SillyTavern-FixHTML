@@ -19,7 +19,7 @@ function splitContent(rawText) {
 
     // คำค้นหาจุดจบความคิด (Stop Phrases)
     const stopPhrases = [
-        "Close COT", "CLOSE COT", "close cot",
+        "Close COT", "CLOSE COT", "close cot","Close of COT", "Close of CoT",
         "End of thought", "Analysis complete", 
         "Thinking process end", "Reasoning finished"
     ];
