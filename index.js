@@ -189,7 +189,8 @@ function openSplitEditor() {
 
     $('#btn-heal-html').on('click', () => {
         let val = $('#editor-main').val();
-        let fixed = val.split(/\n/).map(b => b.includes('<') ? stackBasedFix(b) : b).join('\n');
+        let fixed = stackBasedFix(val);
+        
         $('#editor-main').val(fixed).trigger('input');
         toastr.success("Tags Fixed!");
     });
