@@ -48,3 +48,17 @@
     font-size: 0.85rem;
     padding: 0 5px;
 }
+    border: 1px solid var(--smart-theme-border, transparent);
+    transition: filter 0.2s;
+    margin-top: 5px;
+}
+
+.html-healer-settings .menu_button:hover {
+    filter: brightness(1.2);
+}
+
+.html-healer-settings .styled_description_block {
+    opacity: 0.7;
+    font-size: 0.85rem;
+    padding: 0 5px;
+}
