@@ -16,7 +16,7 @@ function splitContent(rawText) {
     }
 
     const stopPhrases = [
-        "Close COT", "CLOSE COT", "close cot","Close of CoT","End",
+        "Close COT", "CLOSE COT", "close cot","Close of CoT",
         "End of thought", "Analysis complete", 
         "Thinking process end", "Reasoning finished"
     ];
