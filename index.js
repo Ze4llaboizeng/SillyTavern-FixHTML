@@ -1,57 +1,59 @@
 const extensionName = "html-healer";
 
-// --- 1. Logic ---
-function splitContent(rawText) {
-    if (!rawText) return { type: "none", cot: "", main: "" };
+// --- 1. Logic (Smart Segment Healer) ---
 
+function splitContent(rawText) {
     let cleanText = rawText
         .replace(/&lt;think&gt;/gi, "<think>")
         .replace(/&lt;\/think&gt;/gi, "</think>");
 
-    const match = cleanText.match(/<think>([\s\S]*?)<\/think>/i);
-    if (match) {
-        return {
-            type: "tag_match",
-            cot: match[1].trim(),
-            main: cleanText.replace(match[0], "").trim()
-        };
+    // 1. ดึง CoT ที่สมบูรณ์ทั้งหมด (รองรับหลายช่วง)
+    let cots = [];
+    let mainText = cleanText;
+    const thinkRegex = /<think>([\s\S]*?)<\/think>/gi;
+    let match;
+    
+    // วนลูปหาทุก Tag ที่ปิดสมบูรณ์
+    while ((match = thinkRegex.exec(cleanText)) !== null) {
+        cots.push(match[1].trim());
     }
 
+    // ลบ CoT ที่เจอออกเพื่อเตรียมตรวจ Tag ค้าง
+    if (cots.length > 0) {
+        mainText = mainText.replace(thinkRegex, "").trim();
+    }
+
+    // 2. ตรวจหา Tag ที่เปิดค้างไว้ (Broken Tag) ในส่วนที่เหลือ
+    // เช่นพิมพ์ <think> แล้วตัดจบเลย
     const stopPhrases = [
-        "Close COT", "CLOSE COT", "close cot","Close of CoT",
-        "End of thought", "Analysis complete", 
-        "Thinking process end", "Reasoning finished"
+        "Close COT", "CLOSE COT", "close cot", "Close of CoT",
+        "End of thought", "Analysis complete"
     ];
     const stopRegex = new RegExp(`(${stopPhrases.join("|")})`, "i");
+    const openIndex = mainText.search(/<think>/i);
 
-    const openIndex = cleanText.search(/<think>/i);
     if (openIndex !== -1) {
-        const afterOpen = cleanText.substring(openIndex + 7);
+        const afterOpen = mainText.substring(openIndex + 7);
         const stopMatch = afterOpen.match(stopRegex);
         
         if (stopMatch) {
+            // เจอคำสั่งปิด แต่ไม่มี tag ปิด
             const cutPoint = stopMatch.index + stopMatch[0].length;
-            return {
-                type: "phrase_split",
-                cot: afterOpen.substring(0, cutPoint).trim(),
-                main: afterOpen.substring(cutPoint).trim()
-            };
+            cots.push(afterOpen.substring(0, cutPoint).trim());
+            mainText = mainText.substring(0, openIndex) + afterOpen.substring(cutPoint); // ตัด CoT ออกแล้วเชื่อมข้อความ
         } else {
-            return {
-                type: "broken_tag",
-                cot: afterOpen.trim(),
-                main: ""
-            };
+            // ไม่เจอคำสั่งปิดเลย (ค้างเติ่ง)
+            cots.push(afterOpen.trim());
+            mainText = mainText.substring(0, openIndex).trim(); // เนื้อเรื่องคือส่วนก่อนหน้า
         }
     }
 
-    const phraseMatch = cleanText.match(stopRegex);
-    if (phraseMatch) {
-        const cutPoint = phraseMatch.index + phraseMatch[0].length;
+    // Return ผลลัพธ์
+    if (cots.length > 0) {
         return {
-            type: "phrase_split",
-            cot: cleanText.substring(0, cutPoint).trim(),
-            main: cleanText.substring(cutPoint).trim()
+            type: "multi_match", // แจ้งว่าเป็นแบบเจอหลายจุด
+            cot: cots.join("\n\n---\n\n"), // รวมความคิดด้วยเส้นคั่น
+            main: mainText.trim()
         };
     }
 
@@ -60,13 +62,35 @@ function splitContent(rawText) {
 
 function healHtmlContent(htmlContent) {
     if (!htmlContent) return "";
+
+    // Pre-fix: แก้ Tag ที่พิมพ์ผิดรูปแบบบ่อยๆ ก่อน
+    let processed = htmlContent
+        .replace(/<\s*\/\s*([a-zA-Z0-9]+)>/g, "</$1>") // แก้ </ div> เป็น </div>
+        .replace(/<([a-zA-Z0-9]+)([^>]*?)\s*\/?>/g, (match) => match); // Normalize เบื้องต้น
+
+    // ⭐ Smart Segment Logic: แยกซ่อมทีละย่อหน้า
+    // เพื่อป้องกัน Tag บรรทัดบน กินรวบข้อความบรรทัดล่าง
+    const blocks = processed.split(/\n{2,}/); // แยกด้วย Double Newline
     const parser = new DOMParser();
-    const doc = parser.parseFromString(htmlContent, 'text/html');
-    const scripts = doc.getElementsByTagName('script');
-    for (let i = scripts.length - 1; i >= 0; i--) {
-        scripts[i].parentNode.removeChild(scripts[i]);
-    }
-    return doc.body.innerHTML;
+    
+    const healedBlocks = blocks.map(block => {
+        // ถ้าไม่มีเครื่องหมาย < เลย แสดงว่าเป็น text ล้วน ไม่ต้องซ่อม (ประหยัด resource)
+        if (!block.includes('<')) return block;
+
+        // แปลง HTML เฉพาะส่วนนี้
+        const doc = parser.parseFromString(block, 'text/html');
+        
+        // ลบ Script ผี
+        const scripts = doc.getElementsByTagName('script');
+        for (let i = scripts.length - 1; i >= 0; i--) {
+            scripts[i].parentNode.removeChild(scripts[i]);
+        }
+        
+        // ส่งคืน HTML ที่ Browser ซ่อมปิด Tag ให้แล้ว (เฉพาะในย่อหน้านี้)
+        return doc.body.innerHTML;
+    });
+
+    return healedBlocks.join('\n\n'); // ต่อกลับด้วยการเว้นบรรทัด
 }
 
 function countWords(str) {
@@ -74,16 +98,9 @@ function countWords(str) {
     return str.trim().split(/\s+/).length;
 }
 
-function checkBrokenHtml(text) {
-    if (!text) return false;
-    // Simple heuristic: count divs. If mismatch, likely broken.
-    const openDivs = (text.match(/<div/gi) || []).length;
-    const closeDivs = (text.match(/<\/div>/gi) || []).length;
-    return openDivs !== closeDivs;
-}
-
 // --- 2. UI Builder ---
-let currentMessageId = null;
+let targetMessageId = null;
+
 const authorConfig = {
     name: "Zealllll",
     avatarUrl: "scripts/extensions/third-party/SillyTavern-FixHTML/avatar.png"
@@ -94,10 +111,15 @@ function openSplitEditor() {
     const chat = context.chat;
     if (!chat || chat.length === 0) return toastr.warning("No messages to fix.");
 
-    // Start at last message
-    currentMessageId = chat.length - 1;
+    const lastIndex = chat.length - 1;
+    targetMessageId = lastIndex;
+    const originalText = chat[lastIndex].mes;
+    const parts = splitContent(originalText);
 
-    // HTML Structure
+    if (parts.type === "multi_match") {
+        toastr.info(`Detected ${parts.cot.split('---').length} thinking segments.`);
+    }
+
     const modalHtml = `
     <div id="html-healer-modal" class="html-healer-overlay">
         <div class="html-healer-box">
@@ -107,18 +129,15 @@ function openSplitEditor() {
                     <div class="header-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
                     <div class="header-text">
                         <span class="title">Lavender Editor</span>
-                        <span class="subtitle">HTML & CoT Manager</span>
+                        <span class="subtitle">Segment-Aware Healer</span>
                     </div>
                 </div>
 
-                <div class="header-nav">
-                    <button class="nav-btn" id="nav-prev" title="Previous Message"><i class="fa-solid fa-chevron-left"></i></button>
-                    <span class="nav-info" id="nav-display">Msg #${currentMessageId}</span>
-                    <button class="nav-btn" id="nav-next" title="Next Message"><i class="fa-solid fa-chevron-right"></i></button>
-                    <button class="nav-btn scan-btn" id="btn-scan-broken" title="Scan for broken HTML"><i class="fa-solid fa-radar"></i> Scan</button>
-                </div>
-
                 <div class="header-controls">
+                     <div class="author-pill">
+                        <img src="${authorConfig.avatarUrl}" onerror="this.style.display='none'">
+                        <span>${authorConfig.name}</span>
+                    </div>
                     <div class="close-btn" onclick="$('#html-healer-modal').remove()">
                         <i class="fa-solid fa-xmark"></i>
                     </div>
@@ -146,7 +165,7 @@ function openSplitEditor() {
                                 <button class="action-btn" onclick="$('#editor-cot').val('').trigger('input')" title="Clear"><i class="fa-solid fa-eraser"></i></button>
                             </div>
                         </div>
-                        <textarea id="editor-cot" placeholder="Waiting for thoughts..."></textarea>
+                        <textarea id="editor-cot" placeholder="Thinking content...">${parts.cot}</textarea>
                     </div>
 
                     <div class="editor-group main-group">
@@ -154,11 +173,11 @@ function openSplitEditor() {
                             <span class="label"><i class="fa-solid fa-comments"></i> Story Content</span>
                             <div class="toolbar-actions">
                                 <span class="word-count" id="count-main">0 words</span>
-                                <button class="action-btn" id="btn-heal-html" title="Fix HTML"><i class="fa-solid fa-wrench"></i> Fix HTML</button>
+                                <button class="action-btn" id="btn-heal-html" title="Fix HTML"><i class="fa-solid fa-wrench"></i> Smart Fix</button>
                                 <button class="action-btn" onclick="copyText('editor-main')" title="Copy"><i class="fa-regular fa-copy"></i></button>
                             </div>
                         </div>
-                        <textarea id="editor-main" placeholder="Write the story..."></textarea>
+                        <textarea id="editor-main" placeholder="Story content...">${parts.main}</textarea>
                     </div>
                 </div>
 
@@ -171,10 +190,11 @@ function openSplitEditor() {
             </div>
 
             <div class="healer-footer">
-                <div class="footer-status" id="footer-status">
-                    </div>
+                <div class="footer-status">
+                     ${parts.type !== 'none' ? '<span class="tag-badge"><i class="fa-solid fa-layer-group"></i> Multi-Segment</span>' : ''}
+                </div>
                 <button id="btn-save-split" class="save-button">
-                    <span class="btn-content"><i class="fa-solid fa-floppy-disk"></i> Save Msg #${currentMessageId}</span>
+                    <span class="btn-content"><i class="fa-solid fa-floppy-disk"></i> Save Changes</span>
                 </button>
             </div>
         </div>
@@ -184,83 +204,6 @@ function openSplitEditor() {
     $(document.body).append(modalHtml);
     
     // --- Logic & Events ---
-    
-    // 1. Loader Function
-    const loadMessageData = (index) => {
-        const chat = SillyTavern.getContext().chat;
-        if (index < 0 || index >= chat.length) return;
-        
-        currentMessageId = index;
-        const msg = chat[index];
-        const parts = splitContent(msg.mes);
-
-        // Update UI Values
-        $('#editor-cot').val(parts.cot);
-        $('#editor-main').val(parts.main);
-        
-        // Update Nav Info
-        $('#nav-display').text(`Msg #${index} (${msg.is_user ? 'User' : 'Char'})`);
-        $('#btn-save-split').html(`<span class="btn-content"><i class="fa-solid fa-floppy-disk"></i> Save Msg #${index}</span>`);
-
-        // Check for broken HTML visual indicator
-        const isBroken = checkBrokenHtml(parts.main);
-        if(isBroken) {
-            $('#nav-display').css('color', '#ff6b6b').append(' <i class="fa-solid fa-triangle-exclamation"></i>');
-        } else {
-            $('#nav-display').css('color', '');
-        }
-
-        // Auto-split status
-        if (parts.type === 'phrase_split') {
-            $('#footer-status').html('<span class="tag-badge"><i class="fa-solid fa-bolt"></i> Auto-Split Active</span>');
-        } else {
-            $('#footer-status').empty();
-        }
-
-        updatePreview();
-    };
-
-    // 2. Navigation Logic
-    $('#nav-prev').on('click', () => {
-        if (currentMessageId > 0) loadMessageData(currentMessageId - 1);
-    });
-    $('#nav-next').on('click', () => {
-        const max = SillyTavern.getContext().chat.length - 1;
-        if (currentMessageId < max) loadMessageData(currentMessageId + 1);
-    });
-
-    // 3. Scanner Logic (The Feature You Requested!)
-    $('#btn-scan-broken').on('click', () => {
-        const chat = SillyTavern.getContext().chat;
-        let foundIndex = -1;
-        
-        // Scan backwards from current position - 1
-        for (let i = currentMessageId - 1; i >= 0; i--) {
-            if (checkBrokenHtml(chat[i].mes)) {
-                foundIndex = i;
-                break;
-            }
-        }
-        
-        if (foundIndex === -1) {
-            // Try scanning forwards if not found backwards
-            for (let i = chat.length - 1; i > currentMessageId; i--) {
-                if (checkBrokenHtml(chat[i].mes)) {
-                    foundIndex = i;
-                    break;
-                }
-            }
-        }
-
-        if (foundIndex !== -1) {
-            toastr.warning(`Found potential broken HTML at Message #${foundIndex}`);
-            loadMessageData(foundIndex);
-        } else {
-            toastr.success("No obvious broken HTML found in other messages.");
-        }
-    });
-
-    // 4. Standard Utilities
     window.copyText = function(elementId) {
         const copyText = document.getElementById(elementId);
         copyText.select();
@@ -302,20 +245,19 @@ function openSplitEditor() {
     };
 
     $('#editor-cot, #editor-main').on('input', updatePreview);
-    
-    // Fix HTML Action
+    updatePreview();
+
+    // ปุ่มซ่อม HTML แบบใหม่
     $('#btn-heal-html').on('click', () => {
         let val = $('#editor-main').val();
         let fixed = healHtmlContent(val);
         $('#editor-main').val(fixed).trigger('input');
-        toastr.success("HTML Repaired!");
+        toastr.success("Smart Segment Fix Applied!");
     });
 
-    // Save Action
     $('#btn-save-split').on('click', async () => {
         const cot = $('#editor-cot').val().trim();
         const main = $('#editor-main').val();
-        const chat = SillyTavern.getContext().chat; // Refresh ref
 
         if (/<think>/i.test(main)) {
             if (!confirm("⚠️ Found <think> tag in Main Story. Save anyway?")) return;
@@ -325,17 +267,14 @@ function openSplitEditor() {
         if (cot) finalMes += `<think>\n${cot}\n</think>\n`;
         finalMes += main;
 
-        if (chat[currentMessageId].mes !== finalMes) {
-            chat[currentMessageId].mes = finalMes;
-            await SillyTavern.getContext().saveChat();
-            await SillyTavern.getContext().reloadCurrentChat();
-            toastr.success(`Saved Message #${currentMessageId}!`);
+        if (chat[targetMessageId].mes !== finalMes) {
+            chat[targetMessageId].mes = finalMes;
+            await context.saveChat();
+            await context.reloadCurrentChat();
+            toastr.success("Message updated!");
         }
-        // Don't close immediately, user might want to fix others
+        $('#html-healer-modal').remove();
     });
-
-    // Initial Load
-    loadMessageData(currentMessageId);
 }
 
 function loadSettings() {
@@ -359,43 +298,45 @@ function loadSettings() {
     $('#html-healer-open-split').on('click', openSplitEditor);
 }
 
-// Reuse styles from previous turn (Lavender Theme + Nav Support)
+// --- CSS (Lavender Theme) ---
 const styles = `
 <style>
-/* --- THEME --- */
 :root {
     --lavender-primary: #dcd6f7;
     --lavender-secondary: #a6b1e1;
-    --lavender-accent: #ffb7b2; 
-    --lavender-dark: #2a2730;   
-    --lavender-darker: #1e1b24; 
+    --lavender-accent: #ffb7b2;
+    --lavender-dark: #2a2730;
+    --lavender-darker: #1e1b24;
     --lavender-glass: rgba(166, 177, 225, 0.1);
     --lavender-border: rgba(166, 177, 225, 0.2);
     --lavender-text: #f4f4f8;
     --lavender-text-muted: #9ca3af;
 }
 
-/* --- MODAL --- */
-.html-healer-box * { box-sizing: border-box; }
+.html-healer-box * { box-sizing: border-box; transition: all 0.2s ease; }
 .html-healer-overlay {
     position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; height: 100dvh;
     z-index: 99999; background: rgba(15, 12, 20, 0.85);
     display: flex; align-items: center; justify-content: center;
     backdrop-filter: blur(8px);
 }
+
 .html-healer-box {
     width: 90%; max-width: 1100px; height: 85vh;
-    background: var(--lavender-darker); border: 1px solid var(--lavender-border);
-    border-radius: 16px; display: flex; flex-direction: column;
-    box-shadow: 0 0 40px rgba(166, 177, 225, 0.1); overflow: hidden;
+    background: var(--lavender-darker);
+    border: 1px solid var(--lavender-border);
+    border-radius: 16px;
+    display: flex; flex-direction: column;
+    box-shadow: 0 0 40px rgba(166, 177, 225, 0.1);
+    overflow: hidden;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
-/* --- HEADER & NAV --- */
 .healer-header {
-    background: var(--lavender-dark); padding: 10px 20px;
+    background: var(--lavender-dark);
+    padding: 15px 25px;
     display: flex; align-items: center; justify-content: space-between;
-    border-bottom: 1px solid var(--lavender-border); height: 60px;
+    border-bottom: 1px solid var(--lavender-border);
 }
 .header-brand { display: flex; gap: 12px; align-items: center; }
 .header-icon { 
@@ -403,85 +344,116 @@ const styles = `
     border-radius: 10px; color: var(--lavender-secondary);
     display: flex; align-items: center; justify-content: center; font-size: 1.2em;
 }
-.header-text .title { font-weight: bold; color: var(--lavender-text); display: block;}
-.header-text .subtitle { font-size: 0.7em; color: var(--lavender-secondary); }
+.header-text { display: flex; flex-direction: column; }
+.header-text .title { font-weight: bold; font-size: 1.1em; color: var(--lavender-text); letter-spacing: 0.5px; }
+.header-text .subtitle { font-size: 0.75em; color: var(--lavender-secondary); }
 
-/* Navigation Styles */
-.header-nav { 
-    display: flex; align-items: center; gap: 10px; 
-    background: rgba(0,0,0,0.2); padding: 5px 10px; border-radius: 20px; border: 1px solid var(--lavender-border);
+.header-controls { display: flex; align-items: center; gap: 15px; }
+.author-pill { 
+    display: flex; align-items: center; gap: 8px; 
+    background: var(--lavender-glass); padding: 4px 12px; 
+    border-radius: 20px; font-size: 0.85em; color: var(--lavender-text-muted);
 }
-.nav-info { color: var(--lavender-text); font-weight: bold; font-size: 0.9em; min-width: 80px; text-align: center;}
-.nav-btn {
-    background: transparent; border: none; color: var(--lavender-secondary);
-    cursor: pointer; padding: 5px 10px; border-radius: 8px; font-size: 1em;
+.author-pill img { width: 20px; height: 20px; border-radius: 50%; }
+
+.close-btn {
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: var(--lavender-text-muted);
+    background: transparent;
 }
-.nav-btn:hover { background: var(--lavender-glass); color: #fff; }
-.scan-btn { color: var(--lavender-accent); font-size: 0.85em; display: flex; gap: 5px; align-items: center;}
+.close-btn:hover { background: rgba(255, 99, 99, 0.2); color: #ff6b6b; transform: rotate(90deg); }
 
-.close-btn { font-size: 1.5em; cursor: pointer; color: var(--lavender-text-muted); padding: 0 10px; }
-
-/* --- BODY --- */
-.healer-body { flex: 1; display: flex; overflow: hidden; }
-.view-section { flex: 1; display: flex; flex-direction: column; padding: 20px; gap: 15px; overflow-y: auto; }
+.healer-body { flex: 1; display: flex; overflow: hidden; background: linear-gradient(180deg, var(--lavender-darker) 0%, #15121a 100%); }
+.view-section { flex: 1; display: flex; flex-direction: column; padding: 20px; gap: 20px; overflow-y: auto; }
 
 .editor-group {
-    display: flex; flex-direction: column; flex: 1;
-    background: rgba(0,0,0,0.2); border-radius: 12px; border: 1px solid var(--lavender-border);
+    display: flex; flex-direction: column; flex: 1; min-height: 200px;
+    background: rgba(0,0,0,0.2); border-radius: 12px;
+    border: 1px solid var(--lavender-border);
+    overflow: hidden;
 }
+.editor-group:focus-within { border-color: var(--lavender-secondary); box-shadow: 0 0 15px var(--lavender-glass); }
+
 .group-toolbar {
-    padding: 8px 12px; border-bottom: 1px solid var(--lavender-border);
+    padding: 8px 15px; background: rgba(255,255,255,0.03);
+    border-bottom: 1px solid var(--lavender-border);
     display: flex; justify-content: space-between; align-items: center;
 }
-.label { font-weight: 600; color: var(--lavender-secondary); font-size: 0.9em; }
-.toolbar-actions { display: flex; gap: 10px; align-items: center; }
-.action-btn { background: transparent; border: none; color: var(--lavender-text-muted); cursor: pointer; }
-.action-btn:hover { color: var(--lavender-primary); }
+.group-toolbar .label { font-weight: 600; font-size: 0.9em; color: var(--lavender-secondary); display: flex; gap: 8px; align-items: center; }
+.toolbar-actions { display: flex; align-items: center; gap: 10px; }
+.word-count { font-size: 0.75em; color: var(--lavender-text-muted); margin-right: 5px; }
+
+.action-btn {
+    background: transparent; border: none; color: var(--lavender-text-muted);
+    cursor: pointer; padding: 4px; border-radius: 4px; font-size: 0.9em;
+}
+.action-btn:hover { color: var(--lavender-primary); background: var(--lavender-glass); }
 
 textarea {
     flex: 1; width: 100%; border: none; background: transparent;
-    color: var(--lavender-text); padding: 15px; resize: none; outline: none; line-height: 1.5;
+    color: var(--lavender-text); padding: 15px; resize: none; outline: none;
+    font-family: inherit; line-height: 1.6; font-size: 0.95em;
 }
+textarea::placeholder { color: rgba(255,255,255,0.2); }
 
-/* --- PREVIEW --- */
 #view-preview { border-left: 1px solid var(--lavender-border); background: rgba(0,0,0,0.1); }
 .preview-wrapper { 
-    height: 100%; overflow-y: auto; padding: 20px; color: var(--lavender-text); 
+    height: 100%; display: flex; flex-direction: column; 
+    background: var(--lavender-dark); border-radius: 12px; border: 1px solid var(--lavender-border);
+    overflow: hidden;
 }
+.preview-header-label {
+    padding: 10px 15px; background: rgba(255,255,255,0.02);
+    color: var(--lavender-text-muted); font-size: 0.8em; text-transform: uppercase; letter-spacing: 1px;
+}
+#healer-preview-box { padding: 20px; overflow-y: auto; flex: 1; color: var(--lavender-text); }
+
 .preview-think-bubble {
     background: rgba(166, 177, 225, 0.08); border-radius: 8px;
     padding: 15px; margin-bottom: 20px; border-left: 3px solid var(--lavender-secondary);
-    font-style: italic; color: #d0d5e8;
+    display: flex; gap: 12px;
 }
+.bubble-icon { color: var(--lavender-secondary); margin-top: 2px; }
+.bubble-content { font-style: italic; color: #d0d5e8; font-size: 0.95em; line-height: 1.5; }
 
-/* --- FOOTER --- */
 .healer-footer {
-    padding: 10px 20px; background: var(--lavender-dark);
+    padding: 15px 25px; background: var(--lavender-dark);
     border-top: 1px solid var(--lavender-border);
     display: flex; justify-content: space-between; align-items: center;
-    padding-bottom: max(10px, env(safe-area-inset-bottom));
-}
-.save-button {
-    background: linear-gradient(135deg, var(--lavender-secondary), #8e84d6);
-    color: #1a1625; border: none; padding: 8px 25px;
-    border-radius: 20px; font-weight: bold; cursor: pointer;
+    padding-bottom: max(15px, env(safe-area-inset-bottom));
 }
 
-/* --- MOBILE --- */
+.save-button {
+    background: linear-gradient(135deg, var(--lavender-secondary), #8e84d6);
+    color: #1a1625; border: none; padding: 10px 30px;
+    border-radius: 25px; font-weight: bold; cursor: pointer;
+    box-shadow: 0 4px 15px rgba(166, 177, 225, 0.3);
+}
+.save-button:hover { transform: translateY(-2px); filter: brightness(1.1); }
+.tag-badge { background: rgba(255, 183, 178, 0.15); color: var(--lavender-accent); padding: 4px 10px; border-radius: 12px; font-size: 0.8em; font-weight: bold; border: 1px solid rgba(255, 183, 178, 0.2); }
+
 .mobile-tabs { display: none; padding: 10px; gap: 10px; background: var(--lavender-darker); }
-.tab-btn { flex: 1; padding: 10px; background: transparent; border: 1px solid var(--lavender-border); color: var(--lavender-text-muted); border-radius: 8px; }
+.tab-btn {
+    flex: 1; padding: 10px; border-radius: 8px; border: 1px solid var(--lavender-border);
+    background: transparent; color: var(--lavender-text-muted); font-weight: 600; cursor: pointer;
+}
 .tab-btn.active { background: var(--lavender-glass); color: var(--lavender-secondary); border-color: var(--lavender-secondary); }
 
 @media screen and (max-width: 768px) {
     .html-healer-box { width: 100%; height: 100dvh; border-radius: 0; border: none; }
-    .header-brand, .header-controls { display: none; } /* Simplify header */
-    .healer-header { justify-content: center; }
-    .header-nav { width: 100%; justify-content: space-between; }
+    .header-brand { display: none; }
+    .author-pill { display: none; }
+    .healer-header { justify-content: flex-end; padding: 10px; height: 50px; }
+    .close-btn { background: rgba(255,255,255,0.05); }
     
     .mobile-tabs { display: flex; }
     .view-section { display: none; padding: 10px; }
     .view-section.active { display: flex; }
     #view-preview { border-left: none; }
+    
+    .editor-group { min-height: 40%; }
+    .save-button { width: 100%; padding: 12px; }
 }
 
 @media screen and (min-width: 769px) {
@@ -493,5 +465,5 @@ $('head').append(styles);
 
 jQuery(async () => {
     loadSettings();
-    console.log(`[${extensionName}] Ready (Navigator Edition).`);
+    console.log(`[${extensionName}] Ready (Lavender + Segment Fix).`);
 });
