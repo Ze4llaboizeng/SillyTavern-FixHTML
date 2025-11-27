@@ -1,6 +1,6 @@
 const extensionName = "html-healer";
 
-// --- Helper: แยกส่วนประกอบ ---
+// --- 1. Helper Logic (เหมือนเดิม) ---
 function splitContent(rawText) {
     let cleanText = rawText
         .replace(/&lt;think&gt;/gi, "<think>")
@@ -23,7 +23,6 @@ function splitContent(rawText) {
     return { cot: "", main: cleanText };
 }
 
-// --- Helper: ซ่อม HTML ---
 function healHtmlContent(htmlContent) {
     if (!htmlContent) return "";
     const parser = new DOMParser();
@@ -35,7 +34,7 @@ function healHtmlContent(htmlContent) {
     return doc.body.innerHTML;
 }
 
-// --- UI: Split Editor Modal ---
+// --- 2. UI Builder ---
 let targetMessageId = null;
 
 function openSplitEditor() {
@@ -48,47 +47,50 @@ function openSplitEditor() {
     const originalText = chat[lastIndex].mes;
     const parts = splitContent(originalText);
 
+    // HTML Structure: Header -> Content (Scrollable) -> Footer
     const modalHtml = `
     <div id="html-healer-modal" class="html-healer-overlay">
-        <div class="html-healer-box split-mode">
+        <div class="html-healer-box">
             <div class="healer-header">
-                <h3>🧠 Surgeon Tool</h3>
+                <h3><i class="fa-solid fa-file-medical"></i> Surgeon Tool</h3>
                 <div class="close-btn" onclick="$('#html-healer-modal').remove()">✖</div>
             </div>
             
-            <div class="healer-body-grid">
-                <div class="edit-column">
-                    <div class="editor-section">
-                        <div class="section-label">
-                            <span><i class="fa-solid fa-brain"></i> Thinking</span>
-                            <div class="mini-btn" id="btn-clean-cot">Clean Tags</div>
-                        </div>
-                        <textarea id="editor-cot" placeholder="Logic content...">${parts.cot}</textarea>
-                    </div>
-
-                    <div class="editor-section">
-                        <div class="section-label">
-                            <span><i class="fa-solid fa-comment-dots"></i> Main Content</span>
-                            <div class="btn-group">
-                                <div class="mini-btn" id="btn-find-tag">🔍 Find Tag</div>
-                                <div class="mini-btn" id="btn-heal-html">Fix HTML</div>
+            <div class="healer-body-scroll">
+                <div class="healer-grid">
+                    <div class="column-edit">
+                        <div class="editor-group">
+                            <div class="label-row">
+                                <span><i class="fa-solid fa-brain"></i> Thinking Process</span>
+                                <div class="st-btn small" id="btn-clean-cot">Clean Tags</div>
                             </div>
+                            <textarea id="editor-cot" placeholder="Logic inside <think>...">${parts.cot}</textarea>
                         </div>
-                        <textarea id="editor-main" placeholder="Story content...">${parts.main}</textarea>
-                    </div>
-                </div>
 
-                <div class="preview-column">
-                    <div class="section-label">
-                        <span><i class="fa-solid fa-eye"></i> Live Preview</span>
+                        <div class="editor-group">
+                            <div class="label-row">
+                                <span><i class="fa-solid fa-comment-dots"></i> Main Content</span>
+                                <div class="action-buttons">
+                                    <div class="st-btn small" id="btn-find-tag">🔍 Find Tag</div>
+                                    <div class="st-btn small" id="btn-heal-html">Fix HTML</div>
+                                </div>
+                            </div>
+                            <textarea id="editor-main" placeholder="Story content...">${parts.main}</textarea>
+                        </div>
                     </div>
-                    <div id="healer-preview-box" class="preview-content"></div>
+
+                    <div class="column-preview">
+                        <div class="label-row">
+                            <span><i class="fa-solid fa-eye"></i> Live Preview</span>
+                        </div>
+                        <div id="healer-preview-box" class="preview-content"></div>
+                    </div>
                 </div>
             </div>
 
             <div class="healer-footer">
                 <div id="healer-status" class="status-text"></div>
-                <button id="btn-save-split" class="menu_button save-btn">💾 Save</button>
+                <button id="btn-save-split" class="st-btn primary">💾 Apply Changes</button>
             </div>
         </div>
     </div>
@@ -96,7 +98,7 @@ function openSplitEditor() {
 
     $('body').append(modalHtml);
     
-    // --- Logic ---
+    // --- 3. Interaction Logic ---
     const updatePreview = () => {
         const cot = $('#editor-cot').val().trim();
         const main = $('#editor-main').val();
@@ -106,6 +108,7 @@ function openSplitEditor() {
         $('#healer-preview-box').html(previewHtml);
     };
     updatePreview();
+    
     $('#editor-cot, #editor-main').on('input', updatePreview);
 
     $('#btn-clean-cot').on('click', () => {
@@ -130,17 +133,13 @@ function openSplitEditor() {
         const regex = /<think>|<\/think>|<|>|&lt;|&gt;/gi;
         regex.lastIndex = cursorPos; 
         let match = regex.exec(text);
-        if (!match) {
-            regex.lastIndex = 0;
-            match = regex.exec(text);
-        }
+        if (!match) { regex.lastIndex = 0; match = regex.exec(text); }
         if (match) {
             textarea.focus();
             textarea.setSelectionRange(match.index, match.index + match[0].length);
             $('#healer-status').text(`Found: "${match[0]}"`);
         } else {
-            toastr.info("No tags found.");
-            $('#healer-status').text("No tags.");
+            $('#healer-status').text("No tags found.");
         }
     });
 
@@ -149,8 +148,7 @@ function openSplitEditor() {
         const main = $('#editor-main').val();
 
         if (/<think>/i.test(main)) {
-            const confirmSave = confirm("Warning: <think> tag found in Main Content. Move it up?");
-            if (!confirmSave) return;
+            if (!confirm("⚠️ <think> tag detected in Main Content. Save anyway?")) return;
         }
         
         let finalMes = "";
@@ -161,13 +159,12 @@ function openSplitEditor() {
             chat[targetMessageId].mes = finalMes;
             await context.saveChat();
             await context.reloadCurrentChat();
-            toastr.success("Saved!");
+            toastr.success("Message Saved!");
         }
         $('#html-healer-modal').remove();
     });
 }
 
-/** UI Loading */
 function loadSettings() {
     if ($('.html-healer-settings').length > 0) return;
     const settingsHtml = `
@@ -178,127 +175,141 @@ function loadSettings() {
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
             <div class="inline-drawer-content">
-                <div class="styled_description_block">
-                    Mobile-friendly split editor (Fix Overflow).
-                </div>
+                <div class="styled_description_block">Editor tool for PC & Mobile.</div>
                 <div id="html-healer-open-split" class="menu_button">
-                    <i class="fa-solid fa-file-medical"></i> Open Editor
+                    <i class="fa-solid fa-file-medical"></i> Open Surgeon Tool
                 </div>
             </div>
         </div>
-    </div>
-    `;
+    </div>`;
     $('#extensions_settings').append(settingsHtml);
     $('#html-healer-open-split').on('click', openSplitEditor);
 }
 
-// FIX: CSS ปรับปรุงใหม่แก้ปัญหา UI ทะลุจอ
+// --- 4. SillyTavern-Like Responsive CSS ---
 const styles = `
 <style>
-/* Reset Box Sizing inside our modal to prevent padding overflow */
-.html-healer-box, .html-healer-box * {
-    box-sizing: border-box;
-}
+/* Reset basics */
+.html-healer-box * { box-sizing: border-box; }
 
+/* Overlay: PC = Center, Mobile = Fixed Fill */
 .html-healer-overlay {
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0,0,0,0.85); z-index: 20000;
-    display: flex; justify-content: center; align-items: center;
-    padding: 10px; /* Safety padding from screen edges */
+    position: fixed; inset: 0; z-index: 20000;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(2px);
 }
 
-.html-healer-box.split-mode {
-    background: var(--smart-background-color, #202020);
-    border: 1px solid var(--smart-border-color, #444);
-    width: 100%; max-width: 1000px; 
-    height: 100%; max-height: 90vh; /* Don't be taller than 90% of screen */
+/* Modal Box: Flex Column Layout */
+.html-healer-box {
     display: flex; flex-direction: column;
-    border-radius: 10px; padding: 10px;
-    box-shadow: 0 0 30px rgba(0,0,0,0.8);
-    overflow: hidden; /* Prevent box itself from scrolling */
+    background: var(--smart-background-color, #1a1a1a);
+    border: 1px solid var(--smart-border-color, #444);
+    box-shadow: 0 0 25px rgba(0,0,0,0.5);
+    
+    /* PC Defaults */
+    width: 90%; max-width: 1100px;
+    height: 85vh; max-height: 900px;
+    border-radius: 10px;
 }
 
-.healer-header { 
+/* Header & Footer: Rigid (Don't Shrink) */
+.healer-header {
+    flex: 0 0 auto; /* Fixed height */
     display: flex; justify-content: space-between; align-items: center;
-    margin-bottom: 10px; border-bottom: 1px solid #444; padding-bottom: 5px;
-    flex-shrink: 0; /* Header size fixed */
+    padding: 10px 15px;
+    border-bottom: 1px solid var(--smart-border-color, #444);
+    background: rgba(0,0,0,0.1);
 }
-.healer-header h3 { margin: 0; color: var(--smart-text-color, #eee); font-size: 1.1rem;}
-.close-btn { cursor: pointer; font-size: 1.5em; color: #ff5555; padding: 0 10px;}
+.healer-header h3 { margin: 0; font-size: 1.1em; color: var(--smart-text-color, #ccc); }
+.close-btn { cursor: pointer; font-size: 1.2em; color: #ff6666; padding: 0 5px; }
 
-/* Grid Layout */
-.healer-body-grid { 
-    flex: 1; display: flex; gap: 10px; 
-    overflow: hidden; /* Contain inner scrolls */
-    min-height: 0; /* Crucial for flex nested scrolling */
+.healer-footer {
+    flex: 0 0 auto; /* Fixed height */
+    display: flex; align-items: center; justify-content: flex-end;
+    padding: 10px 15px;
+    border-top: 1px solid var(--smart-border-color, #444);
+    background: rgba(0,0,0,0.1); gap: 10px;
 }
-.edit-column { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.preview-column { flex: 1; display: flex; flex-direction: column; border-left: 1px solid #444; padding-left: 10px; min-width: 0; }
+.status-text { margin-right: auto; font-size: 0.85em; color: #ffab40; opacity: 0.8; }
 
-.editor-section { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.section-label { 
-    display: flex; justify-content: space-between; align-items: center; 
-    margin-bottom: 5px; font-weight: bold; color: var(--smart-text-color); font-size: 0.9em;
-}
-.btn-group { display: flex; gap: 5px; }
-.mini-btn { 
-    background: #444; color: white; padding: 4px 8px; border-radius: 4px; 
-    font-size: 0.75em; cursor: pointer; border: 1px solid #666; white-space: nowrap;
+/* Main Scroll Area: Takes all remaining space */
+.healer-body-scroll {
+    flex: 1 1 auto; /* Grow and Shrink */
+    overflow-y: auto; /* Scroll ONLY inside here */
+    padding: 15px;
 }
 
-textarea { 
-    flex: 1; resize: none; width: 100%;
-    background: rgba(0,0,0,0.2); color: var(--smart-text-color, #ccc); 
-    border: 1px solid var(--smart-border-color, #555); 
-    font-family: monospace; padding: 8px; border-radius: 5px; 
-    line-height: 1.4; font-size: 14px;
+/* Grid System */
+.healer-grid {
+    display: flex; gap: 15px; height: 100%;
+}
+.column-edit { flex: 1; display: flex; flex-direction: column; gap: 15px; min-width: 0; }
+.column-preview { flex: 1; display: flex; flex-direction: column; border-left: 1px solid #444; padding-left: 15px; min-width: 0; }
+
+/* Editors */
+.editor-group { display: flex; flex-direction: column; flex: 1; min-height: 150px; }
+.label-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; font-weight: bold; font-size: 0.9em; color: var(--smart-text-color); }
+.action-buttons { display: flex; gap: 5px; }
+
+/* ST Style Buttons */
+.st-btn {
+    background: var(--smart-theme-color, #444);
+    color: var(--smart-theme-text, #fff);
+    border: 1px solid transparent;
+    border-radius: 5px; cursor: pointer;
+    text-align: center; font-weight: 600;
+    transition: filter 0.2s;
+}
+.st-btn:hover { filter: brightness(1.2); }
+.st-btn.small { padding: 3px 8px; font-size: 0.75em; }
+.st-btn.primary { padding: 8px 20px; font-size: 0.95em; }
+
+textarea {
+    width: 100%; flex: 1; resize: none;
+    background: rgba(0,0,0,0.2); color: var(--smart-text-color, #ccc);
+    border: 1px solid var(--smart-border-color, #555);
+    border-radius: 5px; padding: 10px; font-family: monospace;
 }
 
-.preview-content { 
-    flex: 1; overflow-y: auto; width: 100%;
-    background: rgba(0, 0, 0, 0.15); 
-    border: 1px solid var(--smart-border-color, #444); border-radius: 5px; 
-    padding: 10px; color: var(--smart-text-color, #ccc); 
-    font-family: sans-serif; line-height: 1.5; font-size: 14px;
-    word-wrap: break-word; overflow-wrap: break-word; /* Fix text overflow */
+/* Preview Area */
+.preview-content {
+    flex: 1; overflow-y: auto;
+    background: rgba(0,0,0,0.1); border: 1px solid #444;
+    border-radius: 5px; padding: 10px;
+    word-wrap: break-word; font-size: 0.9em; line-height: 1.5;
 }
-.preview-content think { 
-    display: block; background-color: rgba(128, 128, 128, 0.1); 
-    border-left: 4px solid rgba(128, 128, 128, 0.5); 
-    padding: 10px; margin: 10px 0; font-style: italic; opacity: 0.8; 
+.preview-content think {
+    display: block; background: rgba(127, 127, 127, 0.1);
+    border-left: 3px solid #888; padding: 8px; margin: 8px 0;
+    font-style: italic; opacity: 0.8;
 }
 
-.healer-footer { 
-    margin-top: 10px; display: flex; align-items: center; 
-    flex-shrink: 0; 
-}
-.status-text { font-size: 0.8em; opacity: 0.7; margin-right: auto; color: #ffab40; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 50%; }
-.save-btn { padding: 8px 15px; width: auto; min-width: 80px;}
-
-/* MOBILE SPECIFIC FIXES */
-@media (max-width: 768px) {
+/* --- MOBILE RESPONSIVE (The Fix) --- */
+@media screen and (max-width: 768px) {
     .html-healer-overlay {
-        padding: 0; /* Full screen on mobile */
+        align-items: flex-end; /* Or flex-start, doesn't matter much as we fill 100% */
     }
-    .html-healer-box.split-mode {
-        width: 100vw; height: 100vh; max-height: 100vh;
-        max-width: none; border-radius: 0;
-        border: none; padding: 10px;
+    .html-healer-box {
+        width: 100%; height: 100%; 
+        max-width: none; max-height: none;
+        border-radius: 0; border: none;
     }
-    .healer-body-grid {
+    
+    .healer-grid {
         flex-direction: column; /* Stack vertically */
-        overflow-y: auto; /* Allow body to scroll */
-        gap: 15px; padding-bottom: 10px;
+        height: auto; /* Let content dictate height */
     }
-    .preview-column {
-        border-left: none;
-        border-top: 1px solid #444;
+    
+    .column-preview {
+        border-left: none; border-top: 1px solid #444;
         padding-left: 0; padding-top: 15px;
-        flex: none; height: 300px; /* Fixed height for preview on mobile */
+        height: 300px; /* Fixed height for preview on mobile */
+        flex: none; /* Don't grow */
     }
-    .editor-section {
-        min-height: 150px; /* Minimum height for textareas */
-        flex: none;
+    
+    .editor-group {
+        min-height: 200px; /* Give textareas enough space */
     }
 }
 </style>
@@ -307,5 +318,5 @@ $('head').append(styles);
 
 jQuery(async () => {
     loadSettings();
-    console.log(`[${extensionName}] Ready (Fixed Overflow).`);
+    console.log(`[${extensionName}] Ready (SillyTavern Responsive UI).`);
 });
