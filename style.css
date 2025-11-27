@@ -1,0 +1,11 @@
+/* Make the band-aid button slightly distinct */
+.html-healer-btn {
+    opacity: 0.6;
+    transition: opacity 0.2s;
+    cursor: pointer;
+}
+
+.html-healer-btn:hover {
+    opacity: 1.0;
+    color: #4caf50; /* Green color on hover */
+}
