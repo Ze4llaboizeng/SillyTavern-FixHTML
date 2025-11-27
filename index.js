@@ -179,7 +179,7 @@ function loadSettings() {
             </div>
             <div class="inline-drawer-content">
                 <div class="styled_description_block">
-                    Mobile-friendly split editor.
+                    Mobile-friendly split editor (Fix Overflow).
                 </div>
                 <div id="html-healer-open-split" class="menu_button">
                     <i class="fa-solid fa-file-medical"></i> Open Editor
@@ -192,34 +192,48 @@ function loadSettings() {
     $('#html-healer-open-split').on('click', openSplitEditor);
 }
 
-// Mobile-Friendly CSS
+// FIX: CSS ปรับปรุงใหม่แก้ปัญหา UI ทะลุจอ
 const styles = `
 <style>
+/* Reset Box Sizing inside our modal to prevent padding overflow */
+.html-healer-box, .html-healer-box * {
+    box-sizing: border-box;
+}
+
 .html-healer-overlay {
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0,0,0,0.85); z-index: 20000; /* High Z-index */
+    background: rgba(0,0,0,0.85); z-index: 20000;
     display: flex; justify-content: center; align-items: center;
+    padding: 10px; /* Safety padding from screen edges */
 }
+
 .html-healer-box.split-mode {
     background: var(--smart-background-color, #202020);
     border: 1px solid var(--smart-border-color, #444);
-    width: 95%; max-width: 1000px; height: 90%;
+    width: 100%; max-width: 1000px; 
+    height: 100%; max-height: 90vh; /* Don't be taller than 90% of screen */
     display: flex; flex-direction: column;
-    border-radius: 10px; padding: 15px;
+    border-radius: 10px; padding: 10px;
     box-shadow: 0 0 30px rgba(0,0,0,0.8);
+    overflow: hidden; /* Prevent box itself from scrolling */
 }
+
 .healer-header { 
     display: flex; justify-content: space-between; align-items: center;
     margin-bottom: 10px; border-bottom: 1px solid #444; padding-bottom: 5px;
-    flex-shrink: 0;
+    flex-shrink: 0; /* Header size fixed */
 }
 .healer-header h3 { margin: 0; color: var(--smart-text-color, #eee); font-size: 1.1rem;}
 .close-btn { cursor: pointer; font-size: 1.5em; color: #ff5555; padding: 0 10px;}
 
-/* Grid Layout - Desktop Default */
-.healer-body-grid { flex: 1; display: flex; gap: 15px; overflow: hidden; }
-.edit-column { flex: 1; display: flex; flex-direction: column; gap: 10px; }
-.preview-column { flex: 1; display: flex; flex-direction: column; border-left: 1px solid #444; padding-left: 15px; }
+/* Grid Layout */
+.healer-body-grid { 
+    flex: 1; display: flex; gap: 10px; 
+    overflow: hidden; /* Contain inner scrolls */
+    min-height: 0; /* Crucial for flex nested scrolling */
+}
+.edit-column { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.preview-column { flex: 1; display: flex; flex-direction: column; border-left: 1px solid #444; padding-left: 10px; min-width: 0; }
 
 .editor-section { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .section-label { 
@@ -231,22 +245,22 @@ const styles = `
     background: #444; color: white; padding: 4px 8px; border-radius: 4px; 
     font-size: 0.75em; cursor: pointer; border: 1px solid #666; white-space: nowrap;
 }
-.mini-btn:hover { background: #666; }
 
 textarea { 
-    flex: 1; resize: none; 
+    flex: 1; resize: none; width: 100%;
     background: rgba(0,0,0,0.2); color: var(--smart-text-color, #ccc); 
     border: 1px solid var(--smart-border-color, #555); 
-    font-family: monospace; padding: 10px; border-radius: 5px; 
+    font-family: monospace; padding: 8px; border-radius: 5px; 
     line-height: 1.4; font-size: 14px;
 }
 
 .preview-content { 
-    flex: 1; overflow-y: auto; 
+    flex: 1; overflow-y: auto; width: 100%;
     background: rgba(0, 0, 0, 0.15); 
     border: 1px solid var(--smart-border-color, #444); border-radius: 5px; 
-    padding: 15px; color: var(--smart-text-color, #ccc); 
+    padding: 10px; color: var(--smart-text-color, #ccc); 
     font-family: sans-serif; line-height: 1.5; font-size: 14px;
+    word-wrap: break-word; overflow-wrap: break-word; /* Fix text overflow */
 }
 .preview-content think { 
     display: block; background-color: rgba(128, 128, 128, 0.1); 
@@ -258,34 +272,33 @@ textarea {
     margin-top: 10px; display: flex; align-items: center; 
     flex-shrink: 0; 
 }
-.status-text { font-size: 0.8em; opacity: 0.7; margin-right: auto; color: #ffab40; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%; }
-.save-btn { padding: 10px 20px; width: auto; min-width: 100px;}
+.status-text { font-size: 0.8em; opacity: 0.7; margin-right: auto; color: #ffab40; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 50%; }
+.save-btn { padding: 8px 15px; width: auto; min-width: 80px;}
 
-/* MOBILE RESPONSIVE TWEAKS */
+/* MOBILE SPECIFIC FIXES */
 @media (max-width: 768px) {
+    .html-healer-overlay {
+        padding: 0; /* Full screen on mobile */
+    }
     .html-healer-box.split-mode {
-        width: 100%; height: 100%;
+        width: 100vw; height: 100vh; max-height: 100vh;
         max-width: none; border-radius: 0;
-        padding: 10px;
+        border: none; padding: 10px;
     }
     .healer-body-grid {
         flex-direction: column; /* Stack vertically */
-        overflow-y: auto; /* Scroll the whole body */
-        gap: 20px;
+        overflow-y: auto; /* Allow body to scroll */
+        gap: 15px; padding-bottom: 10px;
     }
     .preview-column {
         border-left: none;
         border-top: 1px solid #444;
-        padding-left: 0;
-        padding-top: 15px;
-        min-height: 250px; /* Give preview some space */
+        padding-left: 0; padding-top: 15px;
+        flex: none; height: 300px; /* Fixed height for preview on mobile */
     }
     .editor-section {
-        min-height: 150px; /* Ensure textareas don't collapse */
-    }
-    .mini-btn {
-        padding: 6px 10px; /* Larger touch targets */
-        font-size: 0.85em;
+        min-height: 150px; /* Minimum height for textareas */
+        flex: none;
     }
 }
 </style>
@@ -294,5 +307,5 @@ $('head').append(styles);
 
 jQuery(async () => {
     loadSettings();
-    console.log(`[${extensionName}] Ready (Mobile Compatible).`);
+    console.log(`[${extensionName}] Ready (Fixed Overflow).`);
 });
