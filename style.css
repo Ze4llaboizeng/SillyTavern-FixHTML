@@ -1,11 +1,20 @@
-/* Make the band-aid button slightly distinct */
-.html-healer-btn {
-    opacity: 0.6;
-    transition: opacity 0.2s;
+.html-healer-settings .menu_button {
+    background-color: #4caf50; /* Nice Green Color */
+    color: white;
+    text-align: center;
+    font-weight: bold;
+    padding: 10px;
+    border-radius: 5px;
     cursor: pointer;
+    transition: background-color 0.2s;
 }
 
-.html-healer-btn:hover {
-    opacity: 1.0;
-    color: #4caf50; /* Green color on hover */
+.html-healer-settings .menu_button:hover {
+    background-color: #45a049;
+}
+
+.html-healer-settings .styled_description_block {
+    opacity: 0.7;
+    font-style: italic;
+    font-size: 0.9em;
 }
