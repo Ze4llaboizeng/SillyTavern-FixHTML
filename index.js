@@ -2,70 +2,100 @@ const extensionName = "html-healer";
 const defaultDepth = 1;
 
 /**
- * STEP 1: Fix Chain of Thought (<think>)
- * Strict Rule: If </think> exists, DO NOT touch it.
+ * LOGIC 1: The Specialized CoT Fixer
+ * Rules:
+ * - Only 1 <think> and 1 </think> allowed.
+ * - Detect "Close COT" only if it doesn't already have a tag.
  */
 function fixChainOfThought(text) {
     if (!text) return "";
 
-    // 1. Is there a <think> tag at all? If not, skip.
-    if (!text.includes("<think>")) return text;
+    // Step A: Count how many <think> tags exist
+    const openCount = (text.match(/<think>/g) || []).length;
+    
+    // If there are NO <think> tags, we don't need to do anything CoT related.
+    if (openCount === 0) return text;
 
-    // 2. Is it ALREADY closed?
-    // If we find </think>, we assume it's safe. STOP here.
-    // This prevents the "Double Fix" issue.
+    // Step B: Enforce "Only One <think>"
+    // If the AI hallucinated and put multiple <think> tags, we keep the first one 
+    // and remove the rest to prevent structure breakage.
+    if (openCount > 1) {
+        console.log(`[${extensionName}] Found multiple <think> tags. Cleaning extras.`);
+        // Find the first index
+        const firstIndex = text.indexOf("<think>");
+        // Remove all subsequent <think> tags
+        // We slice the text into two parts: before first tag+length, and the rest (where we delete tags)
+        let before = text.slice(0, firstIndex + 7); // 7 is length of <think>
+        let after = text.slice(firstIndex + 7).replace(/<think>/g, ""); 
+        text = before + after;
+    }
+
+    // Step C: Check if it is already closed
+    // We look for </think>. If strictly one exists, we assume it's safe 
+    // (unless you want to force move it, but usually existing tags are fine).
     if (text.includes("</think>")) {
+        // Optional: Ensure there is only one closing tag too
+        const closeCount = (text.match(/<\/think>/g) || []).length;
+        if (closeCount > 1) {
+             // Keep the LAST closing tag, remove others? 
+             // Or Keep the FIRST? Usually the first one closes the thought.
+             // Let's rely on the first one being the valid closer.
+             const firstClose = text.indexOf("</think>");
+             let before = text.slice(0, firstClose + 8);
+             let after = text.slice(firstClose + 8).replace(/<\/think>/g, "");
+             text = before + after;
+        }
         return text; 
     }
 
-    // 3. Define the "Stop Words" (Case Insensitive)
+    // Step D: It is NOT closed. Let's find where to close it.
     const stopPhrases = [
         "Close COT",
         "CLOSE COT",
         "close cot",
         "End of thought",
-        "End of reasoning",
         "Analysis complete"
     ];
 
-    // 4. Find the Stop Phrase and Close it
-    const regexPattern = new RegExp(`(${stopPhrases.join("|")})`, "i");
-    
+    // Regex Explanation:
+    // (${stopPhrases})  -> Match any of the words
+    // (?!<\/think>)     -> Negative Lookahead: ONLY match if NOT followed by </think>
+    // This prevents double tagging "Close COT</think></think>"
+    const regexPattern = new RegExp(`(${stopPhrases.join("|")})(?!<\/think>)`, "i");
+
     if (regexPattern.test(text)) {
-        console.log(`[${extensionName}] Found stop phrase. Closing <think>.`);
-        // We replace the found phrase with "Phrase + </think>"
+        console.log(`[${extensionName}] Found CoT stop phrase. Closing tag.`);
         return text.replace(regexPattern, "$1</think>");
     }
 
-    // 5. Fallback: No phrase found? Close at the end.
-    console.log(`[${extensionName}] No stop phrase. Force closing <think>.`);
+    // Step E: Fallback - Close at end if no phrase found
+    console.log(`[${extensionName}] No stop phrase. Force closing at end.`);
     return text + "\n</think>";
 }
 
 /**
- * STEP 2: Fix General HTML (<div>, <span>, etc.)
- * This runs AFTER Step 1 is completely finished.
+ * LOGIC 2: General HTML Healer
+ * Fixes divs, spans, etc.
  */
 function healHtml(dirtyHtml) {
     if (!dirtyHtml) return "";
 
-    // PASS 1: Fix the <think> tags first
-    let cotFixedHtml = fixChainOfThought(dirtyHtml);
+    // 1. First, fix the CoT Logic strictly
+    let preProcessed = fixChainOfThought(dirtyHtml);
 
-    // PASS 2: Fix the standard HTML structure
-    // We use the browser's parser to close <div>s and <span>s
+    // 2. Now use DOMParser for the rest
     const parser = new DOMParser();
-    const doc = parser.parseFromString(cotFixedHtml, 'text/html');
+    const doc = parser.parseFromString(preProcessed, 'text/html');
     
-    // Safety: Remove script tags
+    // Safety: Remove scripts
     const scripts = doc.getElementsByTagName('script');
     for (let i = scripts.length - 1; i >= 0; i--) {
         scripts[i].parentNode.removeChild(scripts[i]);
     }
-    
-    // Return the body content. 
-    // Since Step 1 already ensured <think> is closed, DOMParser will treat it as a valid element
-    // and will not try to double-close it.
+
+    // 3. Return the fully healed string
+    // DOMParser is smart enough to respect the </think> we added in Step 1
+    // and will close any <div> tags that are still open around it.
     return doc.body.innerHTML;
 }
 
@@ -91,11 +121,8 @@ async function fixMessages() {
         if (targetIndex < 0) break;
 
         const originalMes = chat[targetIndex].mes;
-        
-        // Run the strict healing logic
         const healedMes = healHtml(originalMes);
 
-        // Only save if the string actually changed
         if (originalMes !== healedMes) {
             chat[targetIndex].mes = healedMes;
             fixCount++;
@@ -103,7 +130,7 @@ async function fixMessages() {
     }
 
     if (fixCount === 0) {
-        toastr.info(`Checked last ${depth} messages. No repairs needed.`);
+        toastr.info(`Checked last ${depth} messages. Logic & HTML are healthy.`);
     } else {
         await context.saveChat();
         await context.reloadCurrentChat();
@@ -115,9 +142,6 @@ async function fixMessages() {
  * UI: Settings Menu
  */
 function loadSettings() {
-    // Prevent duplicate menus if extension reloads
-    $('.html-healer-settings').remove();
-
     const settingsHtml = `
     <div class="html-healer-settings">
         <div class="inline-drawer">
@@ -128,7 +152,7 @@ function loadSettings() {
             
             <div class="inline-drawer-content">
                 <div class="styled_description_block">
-                    <b>Logic:</b> Checks for &lt;think&gt; first. If found, closes it at "Close COT". Then fixes broken HTML divs.
+                    Ensures single &lt;think&gt; tags and closes generic HTML.
                 </div>
                 
                 <div class="healer-controls">
@@ -150,5 +174,5 @@ function loadSettings() {
 
 jQuery(async () => {
     loadSettings();
-    console.log(`[${extensionName}] Strict Mode Ready.`);
+    console.log(`[${extensionName}] Ready (Strict Mode).`);
 });
