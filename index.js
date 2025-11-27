@@ -77,19 +77,24 @@ function fixChainOfThought(text) {
 
     // Step F: (NEW) Check for ANY HTML tag that indicates content start
     // We look for any '<' followed by a letter or '/' that is NOT 'think' or '/think'.
-    // Examples: <div, <span, <br>, </div>, <p>
+    // Examples: <div, <span, <br>, </div>, <p>, or even messy <div =
     // Regex breakdown:
     // <               -> Match opening bracket
     // (?!\/?think\b)  -> Negative lookahead: Ensure it's NOT <think or </think
+    // \s* -> Allow optional whitespace (matches < div)
     // [a-zA-Z\/]      -> Match the start of a tag name or closing slash
-    const htmlTagRegex = /<(?!\/?think\b)[a-zA-Z\/]/i;
+    const htmlTagRegex = /<(?!\/?think\b)\s*[a-zA-Z\/]/i;
 
     if (htmlTagRegex.test(text)) {
         console.log(`[${extensionName}] Found HTML tag start. Closing thought before it.`);
         // Find the index of this tag to insert </think> right before it
         const matchIndex = text.search(htmlTagRegex);
+        
+        // Split string at the tag location
         const before = text.slice(0, matchIndex);
         const after = text.slice(matchIndex);
+        
+        // Reassemble with the closing tag and new line inserted in between
         return before + "\n</think>\n" + after;
     }
 
@@ -215,5 +220,5 @@ function loadSettings() {
 
 jQuery(async () => {
     loadSettings();
-    console.log(`[${extensionName}] Ready (HTML Tag Detection Mode).`);
+    console.log(`[${extensionName}] Ready (Strict Mode + HTML Tag Detection).`);
 });
