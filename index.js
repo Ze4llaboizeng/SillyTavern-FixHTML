@@ -1,117 +1,72 @@
 const extensionName = "html-healer";
 
-// --- 1. Logic (Stack-Based Matching - รองรับ Custom Tags) ---
+// --- 1. Logic (Block Segmentation) ---
 
-function splitContent(rawText) {
+// แยกข้อความเป็นบล็อกๆ เพื่อให้ User เลือก
+function parseSegments(rawText) {
+    // Normalize Tag ก่อน
     let cleanText = rawText
         .replace(/&lt;think&gt;/gi, "<think>")
         .replace(/&lt;\/think&gt;/gi, "</think>");
 
-    // Logic แยก CoT
-    let cots = [];
-    let mainText = cleanText;
-    const thinkRegex = /<think>([\s\S]*?)<\/think>/gi;
-    let match;
+    // แยกย่อหน้าด้วย Double Newline
+    const rawBlocks = cleanText.split(/\n{2,}/);
     
-    while ((match = thinkRegex.exec(cleanText)) !== null) {
-        cots.push(match[1].trim());
-    }
+    // สถานะเริ่มต้น (สมมติว่าเป็นเนื้อเรื่องก่อน)
+    let currentType = "story"; 
+    
+    return rawBlocks.map((block, index) => {
+        let text = block.trim();
+        if (!text) return null;
 
-    if (cots.length > 0) {
-        mainText = mainText.replace(thinkRegex, "").trim();
-    }
-
-    const stopPhrases = [
-        "Close COT", "CLOSE COT", "close cot", "Close of CoT",
-        "End of thought", "Analysis complete"
-    ];
-    const stopRegex = new RegExp(`(${stopPhrases.join("|")})`, "i");
-    const openIndex = mainText.search(/<think>/i);
-
-    if (openIndex !== -1) {
-        const afterOpen = mainText.substring(openIndex + 7);
-        const stopMatch = afterOpen.match(stopRegex);
+        // 🧠 Heuristic Logic: ระบบเดาใจเบื้องต้น (User แก้ทีหลังได้)
+        // ถ้าขึ้นต้นด้วย < และไม่ใช่ tag ปิด (เช่น </...) และไม่ใช่ tag พื้นฐานเช่น <br>, <i>
+        const startsWithTag = /^<[^/](?!br|i|b|em|strong|span|div|p)[^>]*>?/i.test(text);
         
-        if (stopMatch) {
-            const cutPoint = stopMatch.index + stopMatch[0].length;
-            cots.push(afterOpen.substring(0, cutPoint).trim());
-            mainText = mainText.substring(0, openIndex) + afterOpen.substring(cutPoint);
-        } else {
-            cots.push(afterOpen.trim());
-            mainText = mainText.substring(0, openIndex).trim();
+        // ถ้าเจอ <think> หรือ Tag เปิดแปลกๆ ให้เปลี่ยนโหมดเป็น Think
+        if (/<think>/i.test(text) || startsWithTag) {
+            currentType = "think";
         }
-    }
+        
+        // ถ้าเจอ Tag ปิด </think> หรือคำสั่งปิด ให้ถือว่าเป็น Think บล็อกสุดท้าย แล้วจบ
+        const hasClosing = /<\/think>|Close COT|End of thought/i.test(text);
+        
+        let assignedType = currentType;
 
-    if (cots.length > 0) {
+        // ถ้าเจอตัวปิด ในรอบหน้าให้กลับไปเป็น story
+        if (hasClosing) {
+            currentType = "story";
+        }
+
         return {
-            type: "multi_match",
-            cot: cots.join("\n\n---\n\n"),
-            main: mainText.trim()
+            id: index,
+            text: text,
+            type: assignedType // 'story' หรือ 'think'
         };
-    }
-
-    return { type: "none", cot: "", main: cleanText };
+    }).filter(b => b !== null);
 }
 
-// ⭐ Core Logic: Stack-Based Healer (Updated Regex)
+// Logic เดิมสำหรับซ่อม HTML (Stack-Based)
 function stackBasedFix(htmlSegment) {
-    // 1. Tag ที่ไม่ต้องปิด (Void Tags)
     const voidTags = new Set([
         "area", "base", "br", "col", "embed", "hr", "img", "input", 
         "link", "meta", "param", "source", "track", "wbr", "command", "keygen", "menuitem"
     ]);
-
-    // 2. Regex แก้ไขใหม่: รองรับจุด (.) ขีด (-) และโคลอน (:) ในชื่อ Tag
-    // เช่น <char.mood> หรือ <name-subname> จะถูกจับมาทั้งก้อน
     const tagRegex = /<\/?([a-zA-Z0-9\.\-\_:]+)[^>]*>/g;
-    
     const stack = [];
     let match;
 
-    // 3. วนลูป Stack Matching
     while ((match = tagRegex.exec(htmlSegment)) !== null) {
-        const fullTag = match[0];
-        const tagName = match[1].toLowerCase(); // เช่น "char.mood"
-
+        const tagName = match[1].toLowerCase();
         if (voidTags.has(tagName)) continue;
-
-        if (fullTag.startsWith("</")) {
-            // เจอ Tag ปิด
+        if (match[0].startsWith("</")) {
             const lastIdx = stack.lastIndexOf(tagName);
-            if (lastIdx !== -1) {
-                // ตัด Stack ตั้งแต่ตัวที่เจอออกไป (ถือว่าปิดคู่ของมันแล้ว)
-                stack.splice(lastIdx, stack.length - lastIdx);
-            }
+            if (lastIdx !== -1) stack.splice(lastIdx, stack.length - lastIdx);
         } else {
-            // เจอ Tag เปิด -> Push เข้า Stack
             stack.push(tagName);
         }
     }
-
-    // 4. สร้าง Tag ปิดย้อนหลังตามลำดับ (LIFO)
-    // ถ้า Stack เหลือ ["div", "char.mood"] -> จะเติม </char.mood></div>
-    const closingTags = stack.reverse().map(t => `</${t}>`).join("");
-    
-    return htmlSegment + closingTags;
-}
-
-function healHtmlContent(htmlContent) {
-    if (!htmlContent) return "";
-
-    // Pre-clean: แก้พวกเว้นวรรคผิดๆ เช่น </ name.sub> เป็น </name.sub>
-    let processed = htmlContent
-        .replace(/<\s*\/\s*([a-zA-Z0-9\.\-\_:]+)>/g, "</$1>")
-        .replace(/<([a-zA-Z0-9\.\-\_:]+)([^>]*?)\s*\/?>/g, (match, tag, attr) => `<${tag}${attr}>`); 
-
-    // แยกย่อหน้าแล้วซ่อมทีละส่วน
-    const blocks = processed.split(/\n{2,}/);
-    
-    const healedBlocks = blocks.map(block => {
-        if (!block.includes('<')) return block;
-        return stackBasedFix(block);
-    });
-
-    return healedBlocks.join('\n\n');
+    return htmlSegment + stack.reverse().map(t => `</${t}>`).join("");
 }
 
 function countWords(str) {
@@ -119,8 +74,9 @@ function countWords(str) {
     return str.trim().split(/\s+/).length;
 }
 
-// --- 2. UI Builder (Lavender Theme) ---
+// --- 2. UI Builder ---
 let targetMessageId = null;
+let currentSegments = []; // เก็บสถานะบล็อกปัจจุบัน
 
 const authorConfig = {
     name: "Zealllll",
@@ -135,11 +91,9 @@ function openSplitEditor() {
     const lastIndex = chat.length - 1;
     targetMessageId = lastIndex;
     const originalText = chat[lastIndex].mes;
-    const parts = splitContent(originalText);
-
-    if (parts.type === "multi_match") {
-        toastr.info(`Found ${parts.cot.split('---').length} thought layers.`);
-    }
+    
+    // 1. Parse Segments ครั้งแรก
+    currentSegments = parseSegments(originalText);
 
     const modalHtml = `
     <div id="html-healer-modal" class="html-healer-overlay">
@@ -147,13 +101,12 @@ function openSplitEditor() {
             
             <div class="healer-header">
                 <div class="header-brand">
-                    <div class="header-icon"><i class="fa-solid fa-code-commit"></i></div>
+                    <div class="header-icon"><i class="fa-solid fa-layer-group"></i></div>
                     <div class="header-text">
-                        <span class="title">Stack Healer</span>
-                        <span class="subtitle">Custom Tag Support</span>
+                        <span class="title">Segment Selector</span>
+                        <span class="subtitle">Click blocks to toggle (Story/Thought)</span>
                     </div>
                 </div>
-
                 <div class="header-controls">
                      <div class="author-pill">
                         <img src="${authorConfig.avatarUrl}" onerror="this.style.display='none'">
@@ -165,28 +118,26 @@ function openSplitEditor() {
                 </div>
             </div>
 
-            <div class="mobile-tabs">
-                <button class="tab-btn active" onclick="switchTab('edit')">
-                    <i class="fa-solid fa-pen-nib"></i> Editor
-                </button>
-                <button class="tab-btn" onclick="switchTab('preview')">
-                    <i class="fa-solid fa-eye"></i> Preview
-                </button>
+            <div class="segment-picker-area">
+                <div class="segment-scroller" id="segment-container">
+                    </div>
+                <div class="picker-instruction">
+                    <i class="fa-solid fa-hand-pointer"></i> คลิกที่กล่องข้อความเพื่อสลับ: 
+                    <span style="color:#a6b1e1">🧠 ความคิด</span> vs <span style="color:#98c379">💬 เนื้อเรื่อง</span>
+                </div>
             </div>
             
             <div class="healer-body">
                 <div id="view-editor" class="view-section active">
-                    
                     <div class="editor-group think-group">
                         <div class="group-toolbar">
                             <span class="label"><i class="fa-solid fa-brain"></i> Thinking Process</span>
                             <div class="toolbar-actions">
                                 <span class="word-count" id="count-cot">0 words</span>
-                                <button class="action-btn" onclick="copyText('editor-cot')" title="Copy"><i class="fa-regular fa-copy"></i></button>
-                                <button class="action-btn" onclick="$('#editor-cot').val('').trigger('input')" title="Clear"><i class="fa-solid fa-eraser"></i></button>
+                                <button class="action-btn" onclick="copyText('editor-cot')"><i class="fa-regular fa-copy"></i></button>
                             </div>
                         </div>
-                        <textarea id="editor-cot" placeholder="Thinking content...">${parts.cot}</textarea>
+                        <textarea id="editor-cot" placeholder="Selected thought segments will appear here..."></textarea>
                     </div>
 
                     <div class="editor-group main-group">
@@ -194,25 +145,18 @@ function openSplitEditor() {
                             <span class="label"><i class="fa-solid fa-comments"></i> Story Content</span>
                             <div class="toolbar-actions">
                                 <span class="word-count" id="count-main">0 words</span>
-                                <button class="action-btn" id="btn-heal-html" title="Smart Fix HTML"><i class="fa-solid fa-wand-magic-sparkles"></i> Auto-Close Tags</button>
-                                <button class="action-btn" onclick="copyText('editor-main')" title="Copy"><i class="fa-regular fa-copy"></i></button>
+                                <button class="action-btn" id="btn-heal-html" title="Auto-Close Tags"><i class="fa-solid fa-wand-magic-sparkles"></i> Fix HTML</button>
+                                <button class="action-btn" onclick="copyText('editor-main')"><i class="fa-regular fa-copy"></i></button>
                             </div>
                         </div>
-                        <textarea id="editor-main" placeholder="Story content...">${parts.main}</textarea>
-                    </div>
-                </div>
-
-                <div id="view-preview" class="view-section">
-                    <div class="preview-wrapper">
-                        <div class="preview-header-label">Live Preview</div>
-                        <div id="healer-preview-box" class="markdown-body"></div>
+                        <textarea id="editor-main" placeholder="Selected story segments will appear here..."></textarea>
                     </div>
                 </div>
             </div>
 
             <div class="healer-footer">
                 <div class="footer-status">
-                     <span class="tag-badge"><i class="fa-solid fa-tags"></i> Custom Tags Ready</span>
+                     <span class="tag-badge"><i class="fa-solid fa-check-double"></i> Interactive Mode</span>
                 </div>
                 <button id="btn-save-split" class="save-button">
                     <span class="btn-content"><i class="fa-solid fa-floppy-disk"></i> Save Changes</span>
@@ -224,64 +168,79 @@ function openSplitEditor() {
 
     $(document.body).append(modalHtml);
     
-    // Utilities
-    window.copyText = function(elementId) {
-        const copyText = document.getElementById(elementId);
-        copyText.select();
-        copyText.setSelectionRange(0, 99999);
-        navigator.clipboard.writeText(copyText.value);
-        toastr.success("Copied!");
-    }
-
-    window.switchTab = function(tabName) {
-        $('.tab-btn').removeClass('active');
-        $('.view-section').removeClass('active');
-        if (tabName === 'edit') {
-            $('.tab-btn:first-child').addClass('active');
-            $('#view-editor').addClass('active');
-        } else {
-            $('.tab-btn:last-child').addClass('active');
-            $('#view-preview').addClass('active');
-            updatePreview();
-        }
-    }
-
-    const updatePreview = () => {
-        const cot = $('#editor-cot').val() || "";
-        const main = $('#editor-main').val() || "";
+    // --- Render Segments ---
+    const renderSegments = () => {
+        const container = $('#segment-container');
+        container.empty();
         
-        $('#count-cot').text(countWords(cot) + " words");
-        $('#count-main').text(countWords(main) + " words");
-
-        let previewHtml = "";
-        if (cot.trim()) {
-            previewHtml += `
-            <div class="preview-think-bubble">
-                <div class="bubble-icon"><i class="fa-solid fa-lightbulb"></i></div>
-                <div class="bubble-content">${cot.replace(/\n/g, "<br>")}</div>
-            </div>`;
-        }
-        previewHtml += `<div class="preview-main">${main}</div>`;
-        $('#healer-preview-box').html(previewHtml);
+        currentSegments.forEach(seg => {
+            const icon = seg.type === 'think' ? '<i class="fa-solid fa-brain"></i>' : '<i class="fa-solid fa-comment"></i>';
+            const html = `
+            <div class="segment-block type-${seg.type}" data-id="${seg.id}">
+                <div class="seg-icon">${icon}</div>
+                <div class="seg-text">${seg.text.substring(0, 120)}${seg.text.length > 120 ? '...' : ''}</div>
+                <div class="seg-toggle"><i class="fa-solid fa-repeat"></i></div>
+            </div>
+            `;
+            container.append(html);
+        });
+        
+        syncEditors(); // อัปเดต Textarea ด้านล่างทันที
     };
 
-    $('#editor-cot, #editor-main').on('input', updatePreview);
-    updatePreview();
+    // --- Sync Segments to Editors ---
+    const syncEditors = () => {
+        const thinkText = currentSegments
+            .filter(s => s.type === 'think')
+            .map(s => s.text)
+            .join('\n\n');
+            
+        const storyText = currentSegments
+            .filter(s => s.type === 'story')
+            .map(s => s.text)
+            .join('\n\n');
+
+        $('#editor-cot').val(thinkText);
+        $('#editor-main').val(storyText);
+        updateCounts();
+    };
+
+    // --- Click Event (Toggle) ---
+    $('#segment-container').on('click', '.segment-block', function() {
+        const id = $(this).data('id');
+        const seg = currentSegments.find(s => s.id === id);
+        
+        // Toggle Logic
+        seg.type = seg.type === 'think' ? 'story' : 'think';
+        
+        // Re-render เฉพาะ class visual เพื่อความลื่นไหล (หรือ render ใหม่หมดก็ได้ถ้ารายการไม่เยอะ)
+        renderSegments(); 
+    });
+
+    // --- Standard Utils ---
+    window.copyText = (id) => {
+        const el = document.getElementById(id);
+        el.select(); navigator.clipboard.writeText(el.value);
+        toastr.success("Copied!");
+    };
+
+    const updateCounts = () => {
+        $('#count-cot').text(countWords($('#editor-cot').val()) + " words");
+        $('#count-main').text(countWords($('#editor-main').val()) + " words");
+    };
+
+    $('#editor-cot, #editor-main').on('input', updateCounts);
 
     $('#btn-heal-html').on('click', () => {
         let val = $('#editor-main').val();
-        let fixed = healHtmlContent(val);
+        let fixed = val.split(/\n{2,}/).map(b => b.includes('<') ? stackBasedFix(b) : b).join('\n\n');
         $('#editor-main').val(fixed).trigger('input');
-        toastr.success("Fixed tags (including custom ones)!");
+        toastr.success("Tags Fixed!");
     });
 
     $('#btn-save-split').on('click', async () => {
         const cot = $('#editor-cot').val().trim();
         const main = $('#editor-main').val();
-
-        if (/<think>/i.test(main)) {
-            if (!confirm("⚠️ Found <think> tag in Main Story. Save anyway?")) return;
-        }
         
         let finalMes = "";
         if (cot) finalMes += `<think>\n${cot}\n</think>\n`;
@@ -291,10 +250,13 @@ function openSplitEditor() {
             chat[targetMessageId].mes = finalMes;
             await context.saveChat();
             await context.reloadCurrentChat();
-            toastr.success("Message updated!");
+            toastr.success("Saved!");
         }
         $('#html-healer-modal').remove();
     });
+
+    // Start
+    renderSegments();
 }
 
 function loadSettings() {
@@ -307,9 +269,9 @@ function loadSettings() {
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
             <div class="inline-drawer-content">
-                <div class="styled_description_block">Editor by ${authorConfig.name}</div>
+                <div class="styled_description_block">Interactive Editor by ${authorConfig.name}</div>
                 <div id="html-healer-open-split" class="menu_button">
-                    <i class="fa-solid fa-wand-magic-sparkles"></i> Open Stack Editor
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> Open Segment Editor
                 </div>
             </div>
         </div>
@@ -318,7 +280,7 @@ function loadSettings() {
     $('#html-healer-open-split').on('click', openSplitEditor);
 }
 
-// CSS เดิม (Lavender Theme)
+// --- CSS (Updated for Segment Picker) ---
 const styles = `
 <style>
 :root {
@@ -330,154 +292,124 @@ const styles = `
     --lavender-glass: rgba(166, 177, 225, 0.1);
     --lavender-border: rgba(166, 177, 225, 0.2);
     --lavender-text: #f4f4f8;
-    --lavender-text-muted: #9ca3af;
 }
 
 .html-healer-box * { box-sizing: border-box; transition: all 0.2s ease; }
 .html-healer-overlay {
-    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; height: 100dvh;
-    z-index: 99999; background: rgba(15, 12, 20, 0.85);
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    z-index: 99999; background: rgba(15, 12, 20, 0.9);
     display: flex; align-items: center; justify-content: center;
-    backdrop-filter: blur(8px);
+    backdrop-filter: blur(5px);
 }
 
 .html-healer-box {
-    width: 90%; max-width: 1100px; height: 85vh;
+    width: 90%; max-width: 1000px; height: 90vh;
     background: var(--lavender-darker);
     border: 1px solid var(--lavender-border);
     border-radius: 16px;
     display: flex; flex-direction: column;
-    box-shadow: 0 0 40px rgba(166, 177, 225, 0.1);
+    box-shadow: 0 0 50px rgba(0,0,0,0.5);
     overflow: hidden;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
+/* HEADER */
 .healer-header {
-    background: var(--lavender-dark);
-    padding: 15px 25px;
-    display: flex; align-items: center; justify-content: space-between;
-    border-bottom: 1px solid var(--lavender-border);
+    background: var(--lavender-dark); padding: 15px 25px;
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid var(--lavender-border); height: 70px; flex-shrink: 0;
 }
 .header-brand { display: flex; gap: 12px; align-items: center; }
-.header-icon { 
-    width: 36px; height: 36px; background: var(--lavender-glass); 
-    border-radius: 10px; color: var(--lavender-secondary);
-    display: flex; align-items: center; justify-content: center; font-size: 1.2em;
-}
-.header-text { display: flex; flex-direction: column; }
-.header-text .title { font-weight: bold; font-size: 1.1em; color: var(--lavender-text); letter-spacing: 0.5px; }
-.header-text .subtitle { font-size: 0.75em; color: var(--lavender-secondary); }
+.header-icon { font-size: 1.5em; color: var(--lavender-secondary); }
+.header-text .title { font-weight: bold; font-size: 1.2em; color: var(--lavender-text); }
+.header-text .subtitle { font-size: 0.8em; color: var(--lavender-secondary); }
+.header-controls { display: flex; gap: 15px; align-items: center; }
+.close-btn { cursor: pointer; font-size: 1.2em; color: var(--lavender-text); }
 
-.header-controls { display: flex; align-items: center; gap: 15px; }
-.author-pill { 
-    display: flex; align-items: center; gap: 8px; 
-    background: var(--lavender-glass); padding: 4px 12px; 
-    border-radius: 20px; font-size: 0.85em; color: var(--lavender-text-muted);
+/* SEGMENT PICKER (พระเอกของเรา) */
+.segment-picker-area {
+    padding: 10px 20px;
+    background: rgba(0,0,0,0.2);
+    border-bottom: 1px solid var(--lavender-border);
+    height: 180px; /* ความสูงคงที่สำหรับเลือกบล็อก */
+    display: flex; flex-direction: column; gap: 5px;
 }
-.author-pill img { width: 20px; height: 20px; border-radius: 50%; }
-
-.close-btn {
-    width: 32px; height: 32px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    cursor: pointer; color: var(--lavender-text-muted);
-    background: transparent;
+.segment-scroller {
+    flex: 1; overflow-y: auto; overflow-x: hidden;
+    display: flex; flex-direction: column; gap: 8px;
+    padding-right: 5px;
 }
-.close-btn:hover { background: rgba(255, 99, 99, 0.2); color: #ff6b6b; transform: rotate(90deg); }
+.picker-instruction { font-size: 0.8em; color: #aaa; text-align: center; margin-top: 5px; }
 
-.healer-body { flex: 1; display: flex; overflow: hidden; background: linear-gradient(180deg, var(--lavender-darker) 0%, #15121a 100%); }
-.view-section { flex: 1; display: flex; flex-direction: column; padding: 20px; gap: 20px; overflow-y: auto; }
+/* Segment Blocks */
+.segment-block {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border-radius: 6px;
+    cursor: pointer; border: 1px solid transparent;
+    font-size: 0.9em; user-select: none;
+}
+.segment-block:hover { transform: translateX(5px); }
+
+/* Think Mode (Purple) */
+.segment-block.type-think {
+    background: rgba(166, 177, 225, 0.15);
+    border-color: var(--lavender-secondary);
+}
+.segment-block.type-think .seg-icon { color: var(--lavender-secondary); }
+.segment-block.type-think .seg-text { color: #d0d5e8; font-style: italic; }
+
+/* Story Mode (Green/Normal) */
+.segment-block.type-story {
+    background: rgba(152, 195, 121, 0.1); /* Greenish tint */
+    border-color: rgba(152, 195, 121, 0.4);
+}
+.segment-block.type-story .seg-icon { color: #98c379; }
+.segment-block.type-story .seg-text { color: var(--lavender-text); }
+
+.seg-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seg-toggle { opacity: 0.5; font-size: 0.8em; }
+
+/* EDITOR BODY */
+.healer-body { flex: 1; display: flex; overflow: hidden; }
+.view-section { flex: 1; display: flex; flex-direction: column; padding: 15px; gap: 15px; }
 
 .editor-group {
-    display: flex; flex-direction: column; flex: 1; min-height: 200px;
-    background: rgba(0,0,0,0.2); border-radius: 12px;
-    border: 1px solid var(--lavender-border);
-    overflow: hidden;
+    flex: 1; display: flex; flex-direction: column;
+    background: rgba(255,255,255,0.02); border-radius: 8px; border: 1px solid var(--lavender-border);
 }
-.editor-group:focus-within { border-color: var(--lavender-secondary); box-shadow: 0 0 15px var(--lavender-glass); }
-
 .group-toolbar {
-    padding: 8px 15px; background: rgba(255,255,255,0.03);
-    border-bottom: 1px solid var(--lavender-border);
+    padding: 8px 12px; border-bottom: 1px solid var(--lavender-border);
     display: flex; justify-content: space-between; align-items: center;
+    background: rgba(0,0,0,0.1);
 }
-.group-toolbar .label { font-weight: 600; font-size: 0.9em; color: var(--lavender-secondary); display: flex; gap: 8px; align-items: center; }
-.toolbar-actions { display: flex; align-items: center; gap: 10px; }
-.word-count { font-size: 0.75em; color: var(--lavender-text-muted); margin-right: 5px; }
-
-.action-btn {
-    background: transparent; border: none; color: var(--lavender-text-muted);
-    cursor: pointer; padding: 4px; border-radius: 4px; font-size: 0.9em;
-}
-.action-btn:hover { color: var(--lavender-primary); background: var(--lavender-glass); }
+.label { font-weight: bold; color: var(--lavender-secondary); font-size: 0.9em; display: flex; gap: 8px; align-items: center; }
+.action-btn { background: transparent; border: none; color: #aaa; cursor: pointer; font-size: 0.9em; }
+.action-btn:hover { color: white; }
 
 textarea {
     flex: 1; width: 100%; border: none; background: transparent;
     color: var(--lavender-text); padding: 15px; resize: none; outline: none;
-    font-family: inherit; line-height: 1.6; font-size: 0.95em;
+    font-family: monospace; line-height: 1.5; font-size: 14px;
 }
-textarea::placeholder { color: rgba(255,255,255,0.2); }
 
-#view-preview { border-left: 1px solid var(--lavender-border); background: rgba(0,0,0,0.1); }
-.preview-wrapper { 
-    height: 100%; display: flex; flex-direction: column; 
-    background: var(--lavender-dark); border-radius: 12px; border: 1px solid var(--lavender-border);
-    overflow: hidden;
-}
-.preview-header-label {
-    padding: 10px 15px; background: rgba(255,255,255,0.02);
-    color: var(--lavender-text-muted); font-size: 0.8em; text-transform: uppercase; letter-spacing: 1px;
-}
-#healer-preview-box { padding: 20px; overflow-y: auto; flex: 1; color: var(--lavender-text); }
-
-.preview-think-bubble {
-    background: rgba(166, 177, 225, 0.08); border-radius: 8px;
-    padding: 15px; margin-bottom: 20px; border-left: 3px solid var(--lavender-secondary);
-    display: flex; gap: 12px;
-}
-.bubble-icon { color: var(--lavender-secondary); margin-top: 2px; }
-.bubble-content { font-style: italic; color: #d0d5e8; font-size: 0.95em; line-height: 1.5; }
-
+/* FOOTER */
 .healer-footer {
-    padding: 15px 25px; background: var(--lavender-dark);
+    padding: 10px 25px; background: var(--lavender-dark);
     border-top: 1px solid var(--lavender-border);
     display: flex; justify-content: space-between; align-items: center;
-    padding-bottom: max(15px, env(safe-area-inset-bottom));
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
 }
-
 .save-button {
-    background: linear-gradient(135deg, var(--lavender-secondary), #8e84d6);
-    color: #1a1625; border: none; padding: 10px 30px;
-    border-radius: 25px; font-weight: bold; cursor: pointer;
-    box-shadow: 0 4px 15px rgba(166, 177, 225, 0.3);
+    background: var(--lavender-secondary); color: #222; border: none;
+    padding: 8px 24px; border-radius: 20px; font-weight: bold; cursor: pointer;
 }
-.save-button:hover { transform: translateY(-2px); filter: brightness(1.1); }
-.tag-badge { background: rgba(255, 183, 178, 0.15); color: var(--lavender-accent); padding: 4px 10px; border-radius: 12px; font-size: 0.8em; font-weight: bold; border: 1px solid rgba(255, 183, 178, 0.2); }
+.save-button:hover { filter: brightness(1.1); }
+.tag-badge { color: var(--lavender-accent); font-size: 0.8em; }
 
-.mobile-tabs { display: none; padding: 10px; gap: 10px; background: var(--lavender-darker); }
-.tab-btn {
-    flex: 1; padding: 10px; border-radius: 8px; border: 1px solid var(--lavender-border);
-    background: transparent; color: var(--lavender-text-muted); font-weight: 600; cursor: pointer;
-}
-.tab-btn.active { background: var(--lavender-glass); color: var(--lavender-secondary); border-color: var(--lavender-secondary); }
-
+/* Mobile */
 @media screen and (max-width: 768px) {
-    .html-healer-box { width: 100%; height: 100dvh; border-radius: 0; border: none; }
-    .header-brand { display: none; }
-    .author-pill { display: none; }
-    .healer-header { justify-content: flex-end; padding: 10px; height: 50px; }
-    .close-btn { background: rgba(255,255,255,0.05); }
-    
-    .mobile-tabs { display: flex; }
-    .view-section { display: none; padding: 10px; }
-    .view-section.active { display: flex; }
-    #view-preview { border-left: none; }
-    
-    .editor-group { min-height: 40%; }
-    .save-button { width: 100%; padding: 12px; }
-}
-
-@media screen and (min-width: 769px) {
-    .healer-body { flex-direction: row; }
+    .html-healer-box { width: 100%; height: 100%; border-radius: 0; }
+    .header-brand, .author-pill { display: none; }
+    .segment-picker-area { height: 150px; }
 }
 </style>
 `;
@@ -485,5 +417,5 @@ $('head').append(styles);
 
 jQuery(async () => {
     loadSettings();
-    console.log(`[${extensionName}] Ready (Stack V2 + Custom Tags).`);
+    console.log(`[${extensionName}] Ready (Interactive Segments).`);
 });
