@@ -2,38 +2,28 @@ const extensionName = "html-healer";
 
 // --- Helper: แยกส่วนประกอบข้อความ ---
 function splitContent(rawText) {
-    // 1. ลองหา <think>...</think> คู่แรก
     const match = rawText.match(/<think>([\s\S]*?)<\/think>/i);
     if (match) {
         return {
-            cot: match[1].trim(), // เอาไส้ในออกมา
-            main: rawText.replace(match[0], "").trim() // เอาส่วนที่เหลือ (ลบ think ออกแล้ว)
+            cot: match[1].trim(),
+            main: rawText.replace(match[0], "").trim()
         };
     }
-
-    // 2. ถ้าเจอแต่ <think> เปิด แต่ไม่มีปิด (Broken CoT)
     const openIndex = rawText.search(/<think>/i);
     if (openIndex !== -1) {
-        // สมมติว่าตั้งแต่ <think> ไปจนจบคือ CoT ที่ยังไม่ปิด
-        const cotContent = rawText.substring(openIndex + 7).trim(); // +7 คือความยาว <think>
-        const preContent = rawText.substring(0, openIndex).trim();
         return {
-            cot: cotContent,
-            main: preContent
+            cot: rawText.substring(openIndex + 7).trim(),
+            main: rawText.substring(0, openIndex).trim()
         };
     }
-
-    // 3. ถ้าไม่เจออะไรเลย
     return { cot: "", main: rawText };
 }
 
-// --- Helper: ซ่อม HTML เฉพาะส่วนเนื้อหา ---
+// --- Helper: ซ่อม HTML ---
 function healHtmlContent(htmlContent) {
     if (!htmlContent) return "";
     const parser = new DOMParser();
     const doc = parser.parseFromString(htmlContent, 'text/html');
-    
-    // ลบ scripts เพื่อความปลอดภัย
     const scripts = doc.getElementsByTagName('script');
     for (let i = scripts.length - 1; i >= 0; i--) {
         scripts[i].parentNode.removeChild(scripts[i]);
@@ -52,10 +42,9 @@ function openSplitEditor() {
     const lastIndex = chat.length - 1;
     targetMessageId = lastIndex;
     const originalText = chat[lastIndex].mes;
-
-    // แยกส่วนข้อความเพื่อนำไปใส่ในกล่อง
     const parts = splitContent(originalText);
 
+    // HTML สำหรับหน้าต่าง Modal พร้อมช่อง Preview
     const modalHtml = `
     <div id="html-healer-modal" class="html-healer-overlay">
         <div class="html-healer-box split-mode">
@@ -64,27 +53,36 @@ function openSplitEditor() {
                 <div class="close-btn" onclick="$('#html-healer-modal').remove()">✖</div>
             </div>
             
-            <div class="healer-body">
-                <div class="editor-section">
-                    <div class="section-label">
-                        <span><i class="fa-solid fa-brain"></i> Thinking Process (Inner Content)</span>
-                        <div class="mini-btn" id="btn-clean-cot">Trim & Clean</div>
+            <div class="healer-body-grid">
+                <div class="edit-column">
+                    <div class="editor-section">
+                        <div class="section-label">
+                            <span><i class="fa-solid fa-brain"></i> Thinking Process</span>
+                            <div class="mini-btn" id="btn-clean-cot">Trim</div>
+                        </div>
+                        <textarea id="editor-cot" placeholder="Thinking content...">${parts.cot}</textarea>
                     </div>
-                    <textarea id="editor-cot" placeholder="Content inside <think> tags goes here...">${parts.cot}</textarea>
+
+                    <div class="editor-section">
+                        <div class="section-label">
+                            <span><i class="fa-solid fa-comment-dots"></i> Main Content</span>
+                            <div class="mini-btn" id="btn-heal-html">Fix HTML</div>
+                        </div>
+                        <textarea id="editor-main" placeholder="Story content...">${parts.main}</textarea>
+                    </div>
                 </div>
 
-                <div class="editor-section">
+                <div class="preview-column">
                     <div class="section-label">
-                        <span><i class="fa-solid fa-comment-dots"></i> Main Output (HTML)</span>
-                        <div class="mini-btn" id="btn-heal-html">Auto-Heal HTML</div>
+                        <span><i class="fa-solid fa-eye"></i> Live Render Preview</span>
                     </div>
-                    <textarea id="editor-main" placeholder="Main story content goes here...">${parts.main}</textarea>
+                    <div id="healer-preview-box" class="preview-content"></div>
                 </div>
             </div>
 
             <div class="healer-footer">
                 <div style="font-size: 0.8em; opacity: 0.7; margin-right: auto;">
-                    *Cut & Paste text between boxes if the split is wrong.
+                    *Preview simulates how the thought box will look.
                 </div>
                 <button id="btn-save-split" class="menu_button">💾 Merge & Save</button>
             </div>
@@ -93,42 +91,61 @@ function openSplitEditor() {
     `;
 
     $('body').append(modalHtml);
+    
+    // ฟังก์ชั่นอัปเดต Preview
+    const updatePreview = () => {
+        const cot = $('#editor-cot').val().trim();
+        const main = $('#editor-main').val();
+        let previewHtml = "";
+        
+        // ถ้ามี CoT ให้สร้างแท็ก think เพื่อให้ CSS จับ
+        if (cot) {
+            previewHtml += `<think>${cot.replace(/\n/g, "<br>")}</think>`;
+        }
+        previewHtml += main; // ส่วน main เป็น HTML อยู่แล้ว
+        
+        $('#healer-preview-box').html(previewHtml);
+    };
 
-    // Event: ปุ่ม Trim CoT
+    // เรียก Preview ครั้งแรก
+    updatePreview();
+
+    // Bind Events: พิมพ์ปุ๊บ แก้ปั๊บ
+    $('#editor-cot, #editor-main').on('input', updatePreview);
+
+    // Event: Clean CoT
     $('#btn-clean-cot').on('click', () => {
         let val = $('#editor-cot').val();
-        // ลบแท็ก <think> ที่อาจจะติดมาออก
         val = val.replace(/<\/?think>/gi, "").trim();
         $('#editor-cot').val(val);
-        toastr.info("Cleaned CoT whitespace.");
+        updatePreview();
     });
 
-    // Event: ปุ่ม Heal HTML
+    // Event: Heal HTML
     $('#btn-heal-html').on('click', () => {
         let val = $('#editor-main').val();
         let fixed = healHtmlContent(val);
         $('#editor-main').val(fixed);
-        toastr.success("HTML Structure Repaired!");
+        updatePreview();
+        toastr.success("HTML Repaired!");
     });
 
     // Event: Save
     $('#btn-save-split').on('click', async () => {
         const cot = $('#editor-cot').val().trim();
-        const main = $('#editor-main').val(); // ไม่ trim main เพราะบางทีต้องการเว้นวรรค
+        const main = $('#editor-main').val();
         
         let finalMes = "";
-        
-        // ประกอบร่างกลับ: ถ้ามี CoT ให้ห่อแท็กให้ด้วย
-        if (cot) {
-            finalMes += `<think>\n${cot}\n</think>\n`;
-        }
+        if (cot) finalMes += `<think>\n${cot}\n</think>\n`;
         finalMes += main;
 
         if (chat[targetMessageId].mes !== finalMes) {
             chat[targetMessageId].mes = finalMes;
             await context.saveChat();
-            await context.reloadCurrentChat();
-            toastr.success("Message updated successfully!");
+            
+            // Force Reload UI แบบชุดใหญ่เพื่อให้กล่องขึ้น
+            await context.reloadCurrentChat(); 
+            toastr.success("Saved & Reloaded!");
         }
         $('#html-healer-modal').remove();
     });
@@ -139,7 +156,6 @@ function openSplitEditor() {
  */
 function loadSettings() {
     if ($('.html-healer-settings').length > 0) return;
-
     const settingsHtml = `
     <div class="html-healer-settings">
         <div class="inline-drawer">
@@ -149,43 +165,50 @@ function loadSettings() {
             </div>
             <div class="inline-drawer-content">
                 <div class="styled_description_block">
-                    Manually split and fix the Thinking Process and Main Content.
+                    Split editor with Live Preview for Thinking Process.
                 </div>
                 <div id="html-healer-open-split" class="menu_button">
-                    <i class="fa-solid fa-scissors"></i> Open Split Editor
+                    <i class="fa-solid fa-columns"></i> Open Split Editor
                 </div>
             </div>
         </div>
     </div>
     `;
     $('#extensions_settings').append(settingsHtml);
-    
     $('#html-healer-open-split').on('click', openSplitEditor);
 }
 
-// CSS สำหรับหน้าต่างแบบใหม่
-const splitStyles = `
+// CSS Style (รวม CSS สำหรับจำลองกล่อง think ในหน้า Preview)
+const styles = `
 <style>
 .html-healer-overlay {
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0,0,0,0.8); z-index: 9999;
+    background: rgba(0,0,0,0.85); z-index: 9999;
     display: flex; justify-content: center; align-items: center;
 }
 .html-healer-box.split-mode {
     background: var(--smart-background-color, #202020);
     border: 1px solid var(--smart-border-color, #444);
-    width: 90%; max-width: 800px; height: 90%;
+    width: 95%; max-width: 1000px; height: 90%;
     display: flex; flex-direction: column;
     border-radius: 10px; padding: 15px;
-    box-shadow: 0 0 25px rgba(0,0,0,0.7);
+    box-shadow: 0 0 30px rgba(0,0,0,0.8);
 }
 .healer-header { display: flex; justify-content: space-between; margin-bottom: 10px; border-bottom: 1px solid #444; padding-bottom: 5px;}
 .healer-header h3 { margin: 0; color: var(--smart-text-color, #eee); }
 .close-btn { cursor: pointer; font-size: 1.2em; color: #ff5555; }
 
-.healer-body { flex: 1; display: flex; flex-direction: column; gap: 15px; overflow-y: auto; padding-right: 5px; }
+/* Grid Layout */
+.healer-body-grid { 
+    flex: 1; display: flex; gap: 15px; overflow: hidden; 
+}
+.edit-column { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+.preview-column { 
+    flex: 1; display: flex; flex-direction: column; 
+    border-left: 1px solid #444; padding-left: 15px; 
+}
 
-.editor-section { display: flex; flex-direction: column; flex: 1; min-height: 200px; }
+.editor-section { display: flex; flex-direction: column; flex: 1; }
 .section-label { 
     display: flex; justify-content: space-between; align-items: center; 
     margin-bottom: 5px; font-weight: bold; color: var(--smart-text-color);
@@ -196,7 +219,7 @@ const splitStyles = `
 }
 .mini-btn:hover { background: #666; }
 
-.editor-section textarea { 
+textarea { 
     flex: 1; resize: none; 
     background: rgba(0,0,0,0.2); color: var(--smart-text-color, #ccc);
     border: 1px solid var(--smart-border-color, #555);
@@ -204,12 +227,35 @@ const splitStyles = `
     line-height: 1.4;
 }
 
+/* Preview Styles */
+.preview-content {
+    flex: 1; overflow-y: auto; 
+    background: rgba(0, 0, 0, 0.15);
+    border: 1px solid var(--smart-border-color, #444);
+    border-radius: 5px; padding: 15px;
+    color: var(--smart-text-color, #ccc);
+    font-family: sans-serif;
+    line-height: 1.5;
+}
+
+/* SIMULATE THINK BOX IN PREVIEW */
+.preview-content think {
+    display: block;
+    background-color: rgba(128, 128, 128, 0.1);
+    border-left: 4px solid rgba(128, 128, 128, 0.5);
+    padding: 10px;
+    margin: 10px 0;
+    font-style: italic;
+    opacity: 0.8;
+    border-radius: 4px;
+}
+
 .healer-footer { margin-top: 15px; display: flex; align-items: center; }
 </style>
 `;
-$('head').append(splitStyles);
+$('head').append(styles);
 
 jQuery(async () => {
     loadSettings();
-    console.log(`[${extensionName}] Ready (Split Editor Mode).`);
+    console.log(`[${extensionName}] Ready (Live Preview Mode).`);
 });
