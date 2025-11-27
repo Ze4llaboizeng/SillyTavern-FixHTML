@@ -6,12 +6,12 @@ let initialSegments = [];
 let currentSegments = []; 
 
 function parseSegments(rawText) {
+    if (!rawText) return [];
     let cleanText = rawText
         .replace(/&lt;think&gt;/gi, "<think>")
         .replace(/&lt;\/think&gt;/gi, "</think>");
 
-    // [แก้ไข 1] แยกด้วย \n (เคาะครั้งเดียว) ก็นับเป็นบล็อกใหม่ทันที
-    // และกรองบรรทัดว่างทิ้ง (filter) เพื่อไม่ให้เกิดบล็อกเปล่าๆ
+    // แยกด้วย \n และกรองบรรทัดว่างทิ้ง
     const rawBlocks = cleanText.split(/\n/).filter(line => line.trim() !== "");
     
     let isThinking = false;
@@ -42,7 +42,7 @@ function parseSegments(rawText) {
         if (index === 0 && !isThinking && !startsWithComplexTag) assignedType = 'story';
 
         return { id: index, text: text, type: assignedType };
-    }); // ไม่ต้อง filter null แล้วเพราะกรองตั้งแต่ต้น
+    });
 }
 
 function applySplitPoint(startIndex) {
@@ -55,26 +55,99 @@ function applySplitPoint(startIndex) {
     });
 }
 
-function stackBasedFix(htmlSegment) {
+// --- NEW LOGIC: Indentation-Based Fix ---
+// ฟังก์ชันนี้จะดูการย่อหน้าเพื่อจับคู่แท็กเปิด-ปิด แทนการดูแค่บรรทัดเดียว
+function indentBasedFix(fullText) {
+    if (!fullText) return "";
+    const lines = fullText.split('\n');
     const voidTags = new Set([
         "area", "base", "br", "col", "embed", "hr", "img", "input", 
         "link", "meta", "param", "source", "track", "wbr", "command", "keygen", "menuitem"
     ]);
     const tagRegex = /<\/?([a-zA-Z0-9\.\-\_:]+)[^>]*>/g;
-    const stack = [];
-    let match;
+    
+    let stack = []; // เก็บ { tag: "div", indent: 0 }
+    let resultLines = [];
+    
+    for (let i = 0; i < lines.length; i++) {
+        let line = lines[i];
+        
+        // ถ้าเป็นบรรทัดว่าง ให้เก็บไว้รักษารูปแบบ แต่ข้ามการคำนวณ
+        if (!line.trim()) {
+            resultLines.push(line);
+            continue;
+        }
 
-    while ((match = tagRegex.exec(htmlSegment)) !== null) {
-        const tagName = match[1].toLowerCase();
-        if (voidTags.has(tagName)) continue;
-        if (match[0].startsWith("</")) {
-            const lastIdx = stack.lastIndexOf(tagName);
-            if (lastIdx !== -1) stack.splice(lastIdx, stack.length - lastIdx);
+        // 1. หาค่า Indent ของบรรทัดปัจจุบัน
+        const currentIndent = line.search(/\S|$/); 
+
+        // 2. ตรวจสอบ Stack: ถ้า Indent ถอยกลับมา (น้อยกว่าหรือเท่ากับตัวก่อนหน้า)
+        // แสดงว่าจบบล็อกของแท็กนั้นแล้ว
+        let closingTags = "";
+        while (stack.length > 0) {
+            const last = stack[stack.length - 1];
+            if (currentIndent <= last.indent) {
+                closingTags += `</${last.tag}>`;
+                stack.pop();
+            } else {
+                break;
+            }
+        }
+
+        // แทรกแท็กปิด (ถ้ามี) ไปที่ท้ายของ "บรรทัดเนื้อหาก่อนหน้า"
+        if (closingTags) {
+            let prevIdx = resultLines.length - 1;
+            // ย้อนหาบรรทัดที่ไม่ว่างเพื่อแปะแท็กปิด
+            while(prevIdx >= 0 && !resultLines[prevIdx].trim()) {
+                prevIdx--;
+            }
+            
+            if (prevIdx >= 0) {
+                resultLines[prevIdx] += closingTags;
+            } else {
+                line = closingTags + line;
+            }
+        }
+
+        // 3. สแกนหาแท็กเปิด/ปิด ในบรรทัดปัจจุบัน เพื่ออัปเดต Stack
+        let match;
+        tagRegex.lastIndex = 0; 
+        
+        while ((match = tagRegex.exec(line)) !== null) {
+            const tagName = match[1].toLowerCase();
+            const isClosing = match[0].startsWith("</");
+            
+            if (voidTags.has(tagName)) continue;
+
+            if (isClosing) {
+                // ถ้าเจอแท็กปิด ให้ลบออกจาก Stack
+                for (let j = stack.length - 1; j >= 0; j--) {
+                    if (stack[j].tag === tagName) {
+                        stack.splice(j, stack.length - j);
+                        break;
+                    }
+                }
+            } else {
+                // ถ้าเจอแท็กเปิด ให้จำใส่ Stack พร้อมค่า Indent
+                stack.push({ tag: tagName, indent: currentIndent });
+            }
+        }
+        
+        resultLines.push(line);
+    }
+    
+    // 4. ปิดแท็กที่ค้างอยู่ทั้งหมดเมื่อจบข้อความ
+    let finalClosing = stack.reverse().map(item => `</${item.tag}>`).join("");
+    if (finalClosing) {
+        // แปะไว้ท้ายสุดถ้ายังมีบรรทัดเหลือ
+        if (resultLines.length > 0) {
+            resultLines[resultLines.length - 1] += finalClosing;
         } else {
-            stack.push(tagName);
+            resultLines.push(finalClosing);
         }
     }
-    return htmlSegment + stack.reverse().map(t => `</${t}>`).join("");
+
+    return resultLines.join('\n');
 }
 
 function countWords(str) {
@@ -187,12 +260,15 @@ function openSplitEditor() {
         toastr.info("Reset to initial detection.");
     });
 
+    // --- BUTTON CLICK HANDLER UPDATED ---
     $('#btn-heal-html').on('click', () => {
         let val = $('#editor-main').val();
-        let fixed = stackBasedFix(val);
+        
+        // ใช้ logic ใหม่: ส่งข้อความไปทั้งก้อนเพื่อคำนวณ Indent
+        let fixed = indentBasedFix(val);
         
         $('#editor-main').val(fixed).trigger('input');
-        toastr.success("Tags Fixed!");
+        toastr.success("Tags Fixed (Smart Block Detection)!");
     });
 
     $('#editor-cot, #editor-main').on('input', updateCounts);
@@ -316,7 +392,7 @@ const styles = `
 /* CONTROLS (Right Side) */
 .header-controls { 
     display: flex; gap: 8px; align-items: center; margin-left: auto; 
-    flex-shrink: 0; /* ห้ามหด */
+    flex-shrink: 0; 
 }
 .close-btn { cursor: pointer; padding: 5px; color: var(--lavender-text); font-size: 1.2em; }
 .reset-btn {
@@ -330,7 +406,7 @@ const styles = `
     background: rgba(255, 255, 255, 0.05);
     padding: 3px 8px; border-radius: 20px;
     border: 1px solid var(--lavender-border);
-    max-width: 150px; /* จำกัดความกว้างกันล้น */
+    max-width: 150px; 
 }
 .author-pill img {
     width: 24px; height: 24px; border-radius: 50%; object-fit: cover;
@@ -351,11 +427,11 @@ const styles = `
 .picker-instruction { font-size: 0.75em; color: #888; text-align: center; }
 
 .segment-block {
-    display: flex; align-items: center; gap: 8px; padding: 8px; /* เพิ่ม Padding ให้กดง่ายในมือถือ */
+    display: flex; align-items: center; gap: 8px; padding: 8px; 
     border-radius: 4px; cursor: pointer; border: 1px solid transparent;
     font-size: 0.8em; background: rgba(255,255,255,0.03);
     position: relative;
-    min-height: 35px; /* ความสูงขั้นต่ำ */
+    min-height: 35px;
 }
 .segment-block.type-think { border-color: var(--lavender-secondary); background: rgba(166, 177, 225, 0.1); opacity: 0.7; }
 .segment-block.type-story { border-color: rgba(152, 195, 121, 0.4); background: rgba(152, 195, 121, 0.1); font-weight: bold;}
@@ -380,30 +456,25 @@ textarea { flex: 1; width: 100%; border: none; background: transparent; color: #
 .healer-footer {
     padding: 8px 10px; background: var(--lavender-dark);
     border-top: 1px solid var(--lavender-border);
-    display: flex; justify-content: center; /* จัดกึ่งกลาง */
+    display: flex; justify-content: center; 
     align-items: center;
     padding-bottom: max(8px, env(safe-area-inset-bottom));
 }
 .save-button {
     background: var(--lavender-secondary); color: #222; border: none;
-    padding: 10px 0; /* เพิ่มความสูงปุ่ม */
+    padding: 10px 0; 
     border-radius: 8px; font-weight: bold; cursor: pointer;
-    width: 100%; /* ปุ่มเต็มความกว้าง */
+    width: 100%; 
     font-size: 1em;
     box-shadow: 0 2px 5px rgba(0,0,0,0.2);
 }
 
 /* MOBILE RESPONSIVE TWEAKS */
 @media screen and (max-width: 600px) {
-    /* ซ่อน Title เพื่อให้ที่เหลือสำหรับ Author */
     .header-brand { display: none; } 
-    
-    /* ให้ Controls ขยายเต็มพื้นที่ */
     .header-controls { width: 100%; justify-content: space-between; }
-    
     .author-pill { flex: 1; justify-content: center; max-width: none; }
-    .author-pill .author-name { display: inline-block; } /* บังคับโชว์ชื่อ */
-    
+    .author-pill .author-name { display: inline-block; }
     .segment-picker-area { height: 150px; }
 }
 </style>
