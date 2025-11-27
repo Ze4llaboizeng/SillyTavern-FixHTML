@@ -1,10 +1,8 @@
-// fileName: ze4llaboizeng/sillytavern-fixhtml/SillyTavern-FixHTML-main/index.js
-
 const extensionName = "html-healer";
 
 // --- 1. Logic (Block Segmentation) ---
 
-// แยกข้อความเป็นบล็อกๆ และระบุประเภท (Think/Story) ตาม Logic ใหม่
+// แยกข้อความเป็นบล็อกๆ เพื่อให้ User เลือก
 function parseSegments(rawText) {
     // Normalize Tag ก่อน
     let cleanText = rawText
@@ -14,41 +12,53 @@ function parseSegments(rawText) {
     // แยกย่อหน้าด้วย Double Newline
     const rawBlocks = cleanText.split(/\n{2,}/);
     
-    // สถานะ: เจอจุดเริ่มเนื้อเรื่องหรือยัง?
-    let foundStoryStart = false; 
-    
+    // สถานะ
+    let isThinking = false; // กำลังอยู่ในโหมดคิดหรือไม่
+    let hasFoundStoryStart = false; // เจอจุดเริ่มเนื้อเรื่องหรือยัง
+
     return rawBlocks.map((block, index) => {
         let text = block.trim();
         if (!text) return null;
 
-        // Logic ใหม่: Strict Sequence (Think -> Story)
-        // ถ้าเราเคยเจอจุดเริ่ม Story ไปแล้ว บล็อกต่อๆ ไปต้องเป็น Story ทั้งหมด
-        if (foundStoryStart) {
-             return { id: index, text: text, type: "story" };
-        }
+        // Logic ตรวจจับตามที่คุณต้องการ:
+        // 1. เช็คว่าเป็น Tag เปิดที่ดูซับซ้อนหรือไม่ (ไม่ใช่ <br>, <i> ฯลฯ และมักจะมี attribute หรือยาว)
+        const startsWithComplexTag = /^<[^/](?!br|i|b|em|strong|span|div|p)[^>]*>?/i.test(text);
+        const hasOpenThink = /<think>/i.test(text);
+        const hasCloseThink = /<\/think>|Close COT|End of thought/i.test(text);
 
-        // 🧠 Heuristic Check: บล็อกนี้ดูเหมือน Think หรือไม่?
-        // เช็คว่าขึ้นต้นด้วย < และไม่ใช่ tag พื้นฐาน (เช่น <br>, <i>, <b>)
-        const startsWithTag = /^<[^/](?!br|i|b|em|strong|span|div|p)[^>]*>?/i.test(text);
-        const hasThinkTag = /<think>/i.test(text);
-        
-        // เป็น Think ถ้า: มี tag <think> หรือ ขึ้นต้นด้วย tag แปลกๆ
-        const isThinkBlock = hasThinkTag || startsWithTag;
+        let assignedType = 'story'; // ค่าเริ่มต้น
 
-        // เช็คการปิด Think ในบล็อกนี้ (เผื่อมันจบในตัว)
-        const hasClosing = /<\/think>|Close COT|End of thought/i.test(text);
-
-        if (isThinkBlock) {
-            // ถ้าเจอปิดท้ายในบล็อกนี้ แปลว่าบล็อกถัดไปน่าจะเป็น Story แล้ว
-            if (hasClosing) {
-                foundStoryStart = true;
+        // ถ้าเรายังไม่เจอจุดเริ่มเนื้อเรื่อง (ยังอยู่ในช่วงต้นที่อาจเป็น Thought)
+        if (!hasFoundStoryStart) {
+            // เงื่อนไขเข้าสู่โหมดคิด:
+            // - เจอ <think>
+            // - หรือเจอ Tag เปิดแปลกๆ (startsWithComplexTag)
+            // - หรือเรากำลังอยู่ในโหมดคิดอยู่แล้ว (ต่อเนื่องจากบล็อกก่อน)
+            if (hasOpenThink || startsWithComplexTag || isThinking) {
+                assignedType = 'think';
+                isThinking = true; 
+            } else {
+                // ถ้ามาถึงบล็อกแรกๆ แต่ไม่เข้าเงื่อนไขคิดเลย แสดงว่าเป็นเนื้อเรื่องเลย (เช่น ไม่มี <think> นำหน้า)
+                // แต่ถ้าเป็นบล็อกแรกสุด (index 0) แล้วไม่มี text ก่อนหน้า ตาม logic คุณคือ "ถ้าไม่มีข้อความแรก = think" (ถ้ามันเข้าข่าย tag)
+                // โค้ดนี้ cover แล้วด้วย startsWithComplexTag
             }
-            return { id: index, text: text, type: "think" };
+
+            // เงื่อนไขจบโหมดคิด:
+            if (hasCloseThink) {
+                isThinking = false;
+                hasFoundStoryStart = true; // บล็อก *ถัดไป* จะเป็นเนื้อเรื่องแน่นอน
+                assignedType = 'think'; // บล็อกที่มีตัวปิด ยังนับเป็นคิดอยู่
+            }
         } else {
-            // ถ้าไม่เข้าข่าย Think เลย แสดงว่านี่คือ "พารากราฟข้อความแรก" ของเนื้อเรื่อง
-            foundStoryStart = true;
-            return { id: index, text: text, type: "story" };
+            // ถ้าเจอจุดเริ่มเรื่องแล้ว บล็อกที่เหลือเป็น Story ทั้งหมด (ตัดลงมาเป็นเนื้อเรื่อง)
+            assignedType = 'story';
         }
+
+        return {
+            id: index,
+            text: text,
+            type: assignedType
+        };
     }).filter(b => b !== null);
 }
 
@@ -216,9 +226,10 @@ function openSplitEditor() {
         const id = $(this).data('id');
         const seg = currentSegments.find(s => s.id === id);
         
-        // Toggle Logic (Manual Override)
+        // Toggle Logic
         seg.type = seg.type === 'think' ? 'story' : 'think';
         
+        // Re-render เฉพาะ class visual เพื่อความลื่นไหล
         renderSegments(); 
     });
 
@@ -285,7 +296,7 @@ function loadSettings() {
     $('#html-healer-open-split').on('click', openSplitEditor);
 }
 
-// --- CSS (Updated for Segment Picker) ---
+// --- CSS (Updated) ---
 const styles = `
 <style>
 :root {
@@ -330,12 +341,33 @@ const styles = `
 .header-controls { display: flex; gap: 15px; align-items: center; }
 .close-btn { cursor: pointer; font-size: 1.2em; color: var(--lavender-text); }
 
-/* SEGMENT PICKER (พระเอกของเรา) */
+/* AUTHOR PILL (Fix Avatar Overflow) */
+.author-pill {
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 5px 12px;
+    border-radius: 30px;
+    border: 1px solid var(--lavender-border);
+}
+.author-pill img {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid var(--lavender-secondary);
+}
+.author-pill span {
+    font-size: 0.9em;
+    color: var(--lavender-text);
+    font-weight: bold;
+}
+
+/* SEGMENT PICKER */
 .segment-picker-area {
     padding: 10px 20px;
     background: rgba(0,0,0,0.2);
     border-bottom: 1px solid var(--lavender-border);
-    height: 180px; /* ความสูงคงที่สำหรับเลือกบล็อก */
+    height: 180px; 
     display: flex; flex-direction: column; gap: 5px;
 }
 .segment-scroller {
@@ -364,7 +396,7 @@ const styles = `
 
 /* Story Mode (Green/Normal) */
 .segment-block.type-story {
-    background: rgba(152, 195, 121, 0.1); /* Greenish tint */
+    background: rgba(152, 195, 121, 0.1); 
     border-color: rgba(152, 195, 121, 0.4);
 }
 .segment-block.type-story .seg-icon { color: #98c379; }
