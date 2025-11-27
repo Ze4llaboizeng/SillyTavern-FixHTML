@@ -1,7 +1,8 @@
 const extensionName = "html-healer";
 
-// --- 1. Logic ---
+// --- 1. Logic (Core Logic คงเดิมแต่เพิ่ม Utility) ---
 function splitContent(rawText) {
+    // ... (Logic เดิมของคุณที่ดีอยู่แล้ว) ...
     let cleanText = rawText
         .replace(/&lt;think&gt;/gi, "<think>")
         .replace(/&lt;\/think&gt;/gi, "</think>");
@@ -67,13 +68,18 @@ function healHtmlContent(htmlContent) {
     return doc.body.innerHTML;
 }
 
+function countWords(str) {
+    if (!str) return 0;
+    return str.trim().split(/\s+/).length;
+}
+
 // --- 2. UI Builder ---
 let targetMessageId = null;
 
-// ⭐ME⭐
 const authorConfig = {
     name: "Zealllll",
-    avatarUrl: "scripts/extensions/third-party/SillyTavern-FixHTML/avatar.png"
+    // ใช้ Path รูปเดิม
+    avatarUrl: "scripts/extensions/third-party/SillyTavern-FixHTML/avatar.png" 
 };
 
 function openSplitEditor() {
@@ -87,76 +93,85 @@ function openSplitEditor() {
     const parts = splitContent(originalText);
 
     if (parts.type === "phrase_split") {
-        toastr.info("ระบบแยกกล่องให้อัตโนมัติครับ");
+        toastr.info("Auto-Split Activated", "System");
     }
 
+    // HTML Structure ใหม่ (Lavender Theme)
     const modalHtml = `
     <div id="html-healer-modal" class="html-healer-overlay">
-        <div class="html-healer-box purple-theme">
+        <div class="html-healer-box">
             
             <div class="healer-header">
-                <div class="header-left">
-                    <div class="header-title">
-                        <i class="fa-solid fa-wand-magic-sparkles"></i> Magic Editor
-                    </div>
-                    <div class="author-badge desktop-only">
-                        <img src="${authorConfig.avatarUrl}" class="author-img" onerror="this.style.display='none'">
-                        <span>by ${authorConfig.name}</span>
+                <div class="header-brand">
+                    <div class="header-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
+                    <div class="header-text">
+                        <span class="title">Lavender Editor</span>
+                        <span class="subtitle">HTML & CoT Manager</span>
                     </div>
                 </div>
 
-                <div class="mobile-tabs">
-                    <button class="tab-btn active" onclick="switchTab('edit')"><i class="fa-solid fa-pen"></i> แก้ไข</button>
-                    <button class="tab-btn" onclick="switchTab('preview')"><i class="fa-solid fa-eye"></i> ตัวอย่าง</button>
+                <div class="header-controls">
+                     <div class="author-pill">
+                        <img src="${authorConfig.avatarUrl}" onerror="this.style.display='none'">
+                        <span>${authorConfig.name}</span>
+                    </div>
+                    <div class="close-btn" onclick="$('#html-healer-modal').remove()">
+                        <i class="fa-solid fa-xmark"></i>
+                    </div>
                 </div>
-                
-                <div class="close-btn" id="btn-close-modal" title="Close (Esc)">✖</div>
+            </div>
+
+            <div class="mobile-tabs">
+                <button class="tab-btn active" onclick="switchTab('edit')">
+                    <i class="fa-solid fa-pen-nib"></i> Editor
+                </button>
+                <button class="tab-btn" onclick="switchTab('preview')">
+                    <i class="fa-solid fa-eye"></i> Preview
+                </button>
             </div>
             
             <div class="healer-body">
                 <div id="view-editor" class="view-section active">
-                    <div class="input-container think-theme">
-                        <div class="input-label">
-                            <span class="label-text">🧠 ความคิด (Thinking)</span>
-                            <div class="tools">
-                                <button class="tool-btn icon-only" id="btn-copy-cot" title="Copy Thinking"><i class="fa-regular fa-copy"></i></button>
-                                <button class="tool-btn icon-only" id="btn-clear-cot" title="Clear Thinking"><i class="fa-solid fa-eraser"></i></button>
+                    
+                    <div class="editor-group think-group">
+                        <div class="group-toolbar">
+                            <span class="label"><i class="fa-solid fa-brain"></i> Thinking Process</span>
+                            <div class="toolbar-actions">
+                                <span class="word-count" id="count-cot">0 words</span>
+                                <button class="action-btn" onclick="copyText('editor-cot')" title="Copy"><i class="fa-regular fa-copy"></i></button>
+                                <button class="action-btn" onclick="$('#editor-cot').val('').trigger('input')" title="Clear"><i class="fa-solid fa-eraser"></i></button>
                             </div>
                         </div>
-                        <textarea id="editor-cot" placeholder="ยังไม่มีความคิด...">${parts.cot}</textarea>
+                        <textarea id="editor-cot" placeholder="Waiting for thoughts...">${parts.cot}</textarea>
                     </div>
 
-                    <div class="input-container main-theme">
-                        <div class="input-label">
-                            <span class="label-text">💬 เนื้อเรื่อง (Story)</span>
-                            <div class="tools">
-                                <button class="tool-btn icon-only" id="btn-copy-main" title="Copy Story"><i class="fa-regular fa-copy"></i></button>
-                                <button class="tool-btn" id="btn-heal-html"><i class="fa-solid fa-wrench"></i> ซ่อม HTML</button>
+                    <div class="editor-group main-group">
+                        <div class="group-toolbar">
+                            <span class="label"><i class="fa-solid fa-comments"></i> Story Content</span>
+                            <div class="toolbar-actions">
+                                <span class="word-count" id="count-main">0 words</span>
+                                <button class="action-btn" id="btn-heal-html" title="Fix HTML"><i class="fa-solid fa-wrench"></i> Fix HTML</button>
+                                <button class="action-btn" onclick="copyText('editor-main')" title="Copy"><i class="fa-regular fa-copy"></i></button>
                             </div>
                         </div>
-                        <textarea id="editor-main" placeholder="เนื้อเรื่อง...">${parts.main}</textarea>
+                        <textarea id="editor-main" placeholder="Write the story...">${parts.main}</textarea>
                     </div>
                 </div>
 
                 <div id="view-preview" class="view-section">
-                    <div class="preview-container">
-                        <div id="healer-preview-box"></div>
+                    <div class="preview-wrapper">
+                        <div class="preview-header-label">Live Preview</div>
+                        <div id="healer-preview-box" class="markdown-body"></div>
                     </div>
                 </div>
             </div>
 
             <div class="healer-footer">
-                <div class="author-badge mobile-only">
-                    <img src="${authorConfig.avatarUrl}" class="author-img" onerror="this.style.display='none'">
-                    <span>by ${authorConfig.name}</span>
+                <div class="footer-status">
+                    ${parts.type !== 'none' ? '<span class="tag-badge"><i class="fa-solid fa-bolt"></i> Auto-Split</span>' : ''}
                 </div>
-
-                <div class="status-bar" id="healer-status">
-                    <span class="shortcut-hint desktop-only">Tip: Ctrl+Enter to Save, Esc to Close</span>
-                    ${parts.type === 'phrase_split' ? ' • ⚡ Auto-Split Active' : ''}
-                </div>
-                <button id="btn-save-split" class="save-button" title="Save (Ctrl+Enter)">
-                    <i class="fa-solid fa-floppy-disk"></i> บันทึก
+                <button id="btn-save-split" class="save-button">
+                    <span class="btn-content"><i class="fa-solid fa-floppy-disk"></i> Save Changes</span>
                 </button>
             </div>
         </div>
@@ -165,14 +180,21 @@ function openSplitEditor() {
 
     $(document.body).append(modalHtml);
     
-    // Auto-focus main text for convenience
-    setTimeout(() => $('#editor-main').focus(), 100);
+    // --- Logic & Events ---
+    
+    // Copy Utility
+    window.copyText = function(elementId) {
+        const copyText = document.getElementById(elementId);
+        copyText.select();
+        copyText.setSelectionRange(0, 99999);
+        navigator.clipboard.writeText(copyText.value);
+        toastr.success("Copied to clipboard!");
+    }
 
-    // --- Logic UI ---
+    // Tabs
     window.switchTab = function(tabName) {
         $('.tab-btn').removeClass('active');
         $('.view-section').removeClass('active');
-        
         if (tabName === 'edit') {
             $('.tab-btn:first-child').addClass('active');
             $('#view-editor').addClass('active');
@@ -183,62 +205,46 @@ function openSplitEditor() {
         }
     }
 
+    // Real-time Update
     const updatePreview = () => {
-        const cot = $('#editor-cot').val().trim();
-        const main = $('#editor-main').val();
-        let previewHtml = "";
+        const cot = $('#editor-cot').val() || "";
+        const main = $('#editor-main').val() || "";
         
-        if (cot) {
+        // Update Counts
+        $('#count-cot').text(countWords(cot) + " words");
+        $('#count-main').text(countWords(main) + " words");
+
+        // Update Preview
+        let previewHtml = "";
+        if (cot.trim()) {
             previewHtml += `
             <div class="preview-think-bubble">
-                <div class="bubble-label">🧠 Thinking Process</div>
-                ${cot.replace(/\n/g, "<br>")}
+                <div class="bubble-icon"><i class="fa-solid fa-lightbulb"></i></div>
+                <div class="bubble-content">${cot.replace(/\n/g, "<br>")}</div>
             </div>`;
         }
-        previewHtml += `<div class="preview-main">${main}</div>`;
-        
+        previewHtml += `<div class="preview-main">${main}</div>`; // SillyTavern might render markdown here normally
         $('#healer-preview-box').html(previewHtml);
     };
 
-    $('#editor-cot, #editor-main').on('input', () => {
-        if (window.innerWidth > 768) updatePreview();
-    });
-    updatePreview();
+    $('#editor-cot, #editor-main').on('input', updatePreview);
+    updatePreview(); // Init
 
-    // -- Tools --
+    // Fix HTML Action
     $('#btn-heal-html').on('click', () => {
         let val = $('#editor-main').val();
         let fixed = healHtmlContent(val);
-        $('#editor-main').val(fixed);
-        toastr.success("HTML Repaired!");
-        updatePreview();
+        $('#editor-main').val(fixed).trigger('input');
+        toastr.success("HTML tags repaired successfully.");
     });
 
-    const copyToClipboard = (text) => {
-        navigator.clipboard.writeText(text).then(() => {
-            toastr.success("Copied to clipboard!");
-        });
-    };
-    $('#btn-copy-cot').on('click', () => copyToClipboard($('#editor-cot').val()));
-    $('#btn-copy-main').on('click', () => copyToClipboard($('#editor-main').val()));
-    
-    $('#btn-clear-cot').on('click', () => {
-        if(confirm("ลบข้อความในส่วน Thinking ทั้งหมด?")) {
-            $('#editor-cot').val('');
-            updatePreview();
-        }
-    });
-
-    // -- Save & Close --
-    const closeModal = () => $('#html-healer-modal').remove();
-    $('#btn-close-modal').on('click', closeModal);
-
-    const saveData = async () => {
+    // Save Action
+    $('#btn-save-split').on('click', async () => {
         const cot = $('#editor-cot').val().trim();
         const main = $('#editor-main').val();
 
         if (/<think>/i.test(main)) {
-            if (!confirm("⚠️ ยังมีคำว่า <think> ในกล่องเนื้อเรื่อง ยืนยันบันทึก?")) return;
+            if (!confirm("⚠️ Found <think> tag in Main Story. Save anyway?")) return;
         }
         
         let finalMes = "";
@@ -249,32 +255,9 @@ function openSplitEditor() {
             chat[targetMessageId].mes = finalMes;
             await context.saveChat();
             await context.reloadCurrentChat();
-            toastr.success("Saved!");
+            toastr.success("Message updated!");
         }
-        closeModal();
-    };
-
-    $('#btn-save-split').on('click', saveData);
-
-    // -- Keyboard Shortcuts --
-    const handleKeydown = (e) => {
-        // Ctrl + Enter to Save
-        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-            e.preventDefault();
-            saveData();
-        }
-        // Esc to Close
-        if (e.key === 'Escape') {
-            e.preventDefault();
-            closeModal();
-        }
-    };
-    $(window).on('keydown', handleKeydown);
-    
-    // Clean up event listener when modal is removed
-    const originalRemove = $.fn.remove;
-    $('#html-healer-modal').one('remove', function() {
-        $(window).off('keydown', handleKeydown);
+        $('#html-healer-modal').remove();
     });
 }
 
@@ -284,13 +267,13 @@ function loadSettings() {
     <div class="html-healer-settings">
         <div class="inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header">
-                <b>HTML & CoT Healer</b>
+                <b>HTML Healer</b>
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
             <div class="inline-drawer-content">
-                <div class="styled_description_block">Editor with Author Credit.</div>
+                <div class="styled_description_block">Editor by ${authorConfig.name}</div>
                 <div id="html-healer-open-split" class="menu_button">
-                    <i class="fa-solid fa-wand-magic-sparkles"></i> Open Magic Editor
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> Open Lavender Editor
                 </div>
             </div>
         </div>
@@ -299,194 +282,174 @@ function loadSettings() {
     $('#html-healer-open-split').on('click', openSplitEditor);
 }
 
-// --- CSS (Updated to Light Purple / Lavender Theme) ---
+// --- CSS (Lavender Theme) ---
 const styles = `
 <style>
-/* --- THEME VARIABLES: PASTEL PURPLE --- */
+/* --- THEME VARIABLES --- */
 :root {
-    --healer-bg: #2b2633;            /* Dark Purple Gray Background */
-    --healer-panel-bg: #363040;      /* Slightly Lighter Panel */
-    --healer-accent: #b39ddb;        /* Pastel Purple Accent */
-    --healer-accent-hover: #d1c4e9;  /* Lighter Accent */
-    --healer-text: #ede7f6;          /* Very Light Purple Text */
-    --healer-border: #5e5470;        /* Muted Purple Border */
-    --healer-think-bg: rgba(103, 58, 183, 0.15);
-    --healer-think-border: #9575cd;
+    --lavender-primary: #dcd6f7;
+    --lavender-secondary: #a6b1e1;
+    --lavender-accent: #ffb7b2; /* Soft Pink/Peach accent */
+    --lavender-dark: #2a2730;   /* Dark purple bg */
+    --lavender-darker: #1e1b24; /* Darker bg */
+    --lavender-glass: rgba(166, 177, 225, 0.1);
+    --lavender-border: rgba(166, 177, 225, 0.2);
+    --lavender-text: #f4f4f8;
+    --lavender-text-muted: #9ca3af;
 }
 
-/* CORE */
-.html-healer-box * { box-sizing: border-box; }
+/* --- LAYOUT & MODAL --- */
+.html-healer-box * { box-sizing: border-box; transition: all 0.2s ease; }
 .html-healer-overlay {
-    position: fixed !important; top: 0; left: 0; width: 100vw; 
-    height: 100vh; height: 100dvh; 
-    z-index: 99999 !important; background: rgba(20, 15, 25, 0.85); /* Darker overlay */
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; height: 100dvh;
+    z-index: 99999; background: rgba(15, 12, 20, 0.85);
     display: flex; align-items: center; justify-content: center;
-    backdrop-filter: blur(5px);
+    backdrop-filter: blur(8px);
 }
 
 .html-healer-box {
-    width: 95%; max-width: 1200px; height: 90vh;
-    background: var(--healer-bg);
-    color: var(--healer-text);
-    border: 1px solid var(--healer-border); 
+    width: 90%; max-width: 1100px; height: 85vh;
+    background: var(--lavender-darker);
+    border: 1px solid var(--lavender-border);
     border-radius: 16px;
     display: flex; flex-direction: column;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    box-shadow: 0 0 40px rgba(166, 177, 225, 0.1);
     overflow: hidden;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
-/* HEADER */
+/* --- HEADER --- */
 .healer-header {
-    background: linear-gradient(90deg, #4a3b69 0%, #363040 100%);
-    padding: 0 20px; height: 65px; flex-shrink: 0;
+    background: var(--lavender-dark);
+    padding: 15px 25px;
     display: flex; align-items: center; justify-content: space-between;
-    border-bottom: 1px solid var(--healer-border);
+    border-bottom: 1px solid var(--lavender-border);
 }
-.header-title { 
-    font-size: 1.3em; font-weight: bold; color: #fff; 
-    display: flex; align-items: center; gap: 10px; 
-    text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+.header-brand { display: flex; gap: 12px; align-items: center; }
+.header-icon { 
+    width: 36px; height: 36px; background: var(--lavender-glass); 
+    border-radius: 10px; color: var(--lavender-secondary);
+    display: flex; align-items: center; justify-content: center; font-size: 1.2em;
 }
+.header-text { display: flex; flex-direction: column; }
+.header-text .title { font-weight: bold; font-size: 1.1em; color: var(--lavender-text); letter-spacing: 0.5px; }
+.header-text .subtitle { font-size: 0.75em; color: var(--lavender-secondary); }
 
-/* Author Badge */
-.author-badge {
-    display: flex; align-items: center; gap: 8px;
-    background: rgba(255, 255, 255, 0.15);
-    padding: 5px 12px; border-radius: 20px;
-    font-size: 0.85em; color: #d1c4e9; border: 1px solid rgba(255,255,255,0.1);
+.header-controls { display: flex; align-items: center; gap: 15px; }
+.author-pill { 
+    display: flex; align-items: center; gap: 8px; 
+    background: var(--lavender-glass); padding: 4px 12px; 
+    border-radius: 20px; font-size: 0.85em; color: var(--lavender-text-muted);
 }
-.author-img {
-    width: 24px; height: 24px; border-radius: 50%; object-fit: cover;
-    border: 2px solid rgba(255,255,255,0.3);
-}
+.author-pill img { width: 20px; height: 20px; border-radius: 50%; }
 
-.close-btn { 
-    font-size: 1.2em; cursor: pointer; color: #ffab91; 
-    transition: 0.2s; width: 30px; height: 30px; 
+.close-btn {
+    width: 32px; height: 32px; border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
-    border-radius: 50%;
+    cursor: pointer; color: var(--lavender-text-muted);
+    background: transparent;
 }
-.close-btn:hover { background: rgba(255, 255, 255, 0.1); color: #ff8a65; }
+.close-btn:hover { background: rgba(255, 99, 99, 0.2); color: #ff6b6b; transform: rotate(90deg); }
 
-/* TABS (Mobile) */
-.mobile-tabs { display: none; gap: 8px; background: rgba(0,0,0,0.2); padding: 4px; border-radius: 20px; }
-.tab-btn {
-    background: transparent; border: none; color: #aaa;
-    padding: 6px 16px; border-radius: 16px; cursor: pointer; font-weight: bold; font-size: 0.9em;
+/* --- BODY & EDITOR --- */
+.healer-body { flex: 1; display: flex; overflow: hidden; background: linear-gradient(180deg, var(--lavender-darker) 0%, #15121a 100%); }
+.view-section { flex: 1; display: flex; flex-direction: column; padding: 20px; gap: 20px; overflow-y: auto; }
+
+.editor-group {
+    display: flex; flex-direction: column; flex: 1; min-height: 200px;
+    background: rgba(0,0,0,0.2); border-radius: 12px;
+    border: 1px solid var(--lavender-border);
+    overflow: hidden;
 }
-.tab-btn.active { background: var(--healer-accent); color: #2b2633; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+.editor-group:focus-within { border-color: var(--lavender-secondary); box-shadow: 0 0 15px var(--lavender-glass); }
 
-/* BODY */
-.healer-body { flex: 1; overflow: hidden; position: relative; display: flex; background: var(--healer-bg); }
-.view-section { 
-    flex: 1; display: flex; flex-direction: column; padding: 20px; gap: 15px; overflow-y: auto; 
-    height: 100%;
-}
-
-.input-container {
-    display: flex; flex-direction: column; flex: 1;
-    border-radius: 12px; overflow: hidden;
-    background: var(--healer-panel-bg);
-    border: 1px solid var(--healer-border);
-    transition: border-color 0.2s;
-}
-.input-container:focus-within { border-color: var(--healer-accent); }
-
-/* Special Themes */
-.input-container.think-theme { 
-    border: 1px solid var(--healer-think-border); 
-    background: rgba(45, 40, 60, 0.5);
-}
-.input-container.think-theme .input-label { background: rgba(103, 58, 183, 0.2); color: #d1c4e9; }
-.input-container.main-theme .input-label { background: rgba(0,0,0,0.2); }
-
-.input-label {
-    padding: 10px 15px; font-weight: bold; color: var(--healer-text);
+.group-toolbar {
+    padding: 8px 15px; background: rgba(255,255,255,0.03);
+    border-bottom: 1px solid var(--lavender-border);
     display: flex; justify-content: space-between; align-items: center;
-    font-size: 0.9em; letter-spacing: 0.5px;
 }
-.tools { display: flex; gap: 8px; }
-.tool-btn {
-    background: rgba(255,255,255,0.1); border: 1px solid transparent; 
-    color: var(--healer-text); border-radius: 6px;
-    padding: 4px 10px; font-size: 0.8em; cursor: pointer; display: flex; gap: 6px; align-items: center;
-    transition: 0.2s;
+.group-toolbar .label { font-weight: 600; font-size: 0.9em; color: var(--lavender-secondary); display: flex; gap: 8px; align-items: center; }
+.toolbar-actions { display: flex; align-items: center; gap: 10px; }
+.word-count { font-size: 0.75em; color: var(--lavender-text-muted); margin-right: 5px; }
+
+.action-btn {
+    background: transparent; border: none; color: var(--lavender-text-muted);
+    cursor: pointer; padding: 4px; border-radius: 4px; font-size: 0.9em;
 }
-.tool-btn:hover { background: var(--healer-accent); color: #2b2633; }
-.tool-btn.icon-only { padding: 4px 8px; }
+.action-btn:hover { color: var(--lavender-primary); background: var(--lavender-glass); }
 
 textarea {
     flex: 1; width: 100%; border: none; background: transparent;
-    color: var(--healer-text); padding: 15px; resize: none;
-    font-family: 'Consolas', 'Monaco', monospace; font-size: 14px; outline: none; line-height: 1.6;
+    color: var(--lavender-text); padding: 15px; resize: none; outline: none;
+    font-family: inherit; line-height: 1.6; font-size: 0.95em;
 }
 textarea::placeholder { color: rgba(255,255,255,0.2); }
 
-/* PREVIEW */
-.preview-container { 
-    height: 100%; overflow-y: auto; background: rgba(0,0,0,0.15); 
-    border-radius: 12px; padding: 25px; border: 1px solid var(--healer-border); 
+/* --- PREVIEW SECTION --- */
+#view-preview { border-left: 1px solid var(--lavender-border); background: rgba(0,0,0,0.1); }
+.preview-wrapper { 
+    height: 100%; display: flex; flex-direction: column; 
+    background: var(--lavender-dark); border-radius: 12px; border: 1px solid var(--lavender-border);
+    overflow: hidden;
 }
-.preview-think-bubble {
-    background: var(--healer-think-bg); 
-    border-left: 4px solid var(--healer-think-border);
-    padding: 15px 20px; margin-bottom: 25px; border-radius: 0 8px 8px 0;
-    color: #d1c4e9; font-style: italic; line-height: 1.5;
+.preview-header-label {
+    padding: 10px 15px; background: rgba(255,255,255,0.02);
+    color: var(--lavender-text-muted); font-size: 0.8em; text-transform: uppercase; letter-spacing: 1px;
 }
-.bubble-label { 
-    font-weight: bold; color: var(--healer-accent); font-style: normal; 
-    font-size: 0.75em; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px;
-}
-.preview-main { color: var(--healer-text); line-height: 1.7; font-size: 1.05em; }
+#healer-preview-box { padding: 20px; overflow-y: auto; flex: 1; color: var(--lavender-text); }
 
-/* FOOTER */
+.preview-think-bubble {
+    background: rgba(166, 177, 225, 0.08); border-radius: 8px;
+    padding: 15px; margin-bottom: 20px; border-left: 3px solid var(--lavender-secondary);
+    display: flex; gap: 12px;
+}
+.bubble-icon { color: var(--lavender-secondary); margin-top: 2px; }
+.bubble-content { font-style: italic; color: #d0d5e8; font-size: 0.95em; line-height: 1.5; }
+
+/* --- FOOTER --- */
 .healer-footer {
-    background: #2b2633; border-top: 1px solid var(--healer-border);
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 15px 20px; flex-shrink: 0; gap: 10px;
+    padding: 15px 25px; background: var(--lavender-dark);
+    border-top: 1px solid var(--lavender-border);
+    display: flex; justify-content: space-between; align-items: center;
+    /* iOS Safe Area */
     padding-bottom: max(15px, env(safe-area-inset-bottom));
 }
-.status-bar { font-size: 0.85em; color: #9fa8da; margin-left: auto; margin-right: 20px; opacity: 0.8;}
-.shortcut-hint { margin-right: 15px; font-style: italic; color: #777; }
 
 .save-button {
-    background: linear-gradient(135deg, #7e57c2 0%, #673ab7 100%); 
-    color: white; border: none; padding: 10px 35px; border-radius: 25px;
-    font-weight: bold; font-size: 1em; cursor: pointer;
-    box-shadow: 0 4px 15px rgba(103, 58, 183, 0.4);
-    white-space: nowrap; flex-shrink: 0; transition: transform 0.2s, box-shadow 0.2s;
+    background: linear-gradient(135deg, var(--lavender-secondary), #8e84d6);
+    color: #1a1625; border: none; padding: 10px 30px;
+    border-radius: 25px; font-weight: bold; cursor: pointer;
+    box-shadow: 0 4px 15px rgba(166, 177, 225, 0.3);
 }
-.save-button:hover { 
-    transform: translateY(-2px); 
-    box-shadow: 0 6px 20px rgba(103, 58, 183, 0.6);
-    filter: brightness(1.1);
-}
+.save-button:hover { transform: translateY(-2px); filter: brightness(1.1); }
+.tag-badge { background: rgba(255, 183, 178, 0.15); color: var(--lavender-accent); padding: 4px 10px; border-radius: 12px; font-size: 0.8em; font-weight: bold; border: 1px solid rgba(255, 183, 178, 0.2); }
 
-/* RESPONSIVE */
-.desktop-only { display: flex; }
-.mobile-only { display: none; }
+/* --- MOBILE RESPONSIVE --- */
+.mobile-tabs { display: none; padding: 10px; gap: 10px; background: var(--lavender-darker); }
+.tab-btn {
+    flex: 1; padding: 10px; border-radius: 8px; border: 1px solid var(--lavender-border);
+    background: transparent; color: var(--lavender-text-muted); font-weight: 600; cursor: pointer;
+}
+.tab-btn.active { background: var(--lavender-glass); color: var(--lavender-secondary); border-color: var(--lavender-secondary); }
 
 @media screen and (max-width: 768px) {
     .html-healer-box { width: 100%; height: 100dvh; border-radius: 0; border: none; }
-    .header-left { display: none !important; } 
-    .desktop-only { display: none; }
+    .header-brand { display: none; }
+    .author-pill { display: none; }
+    .healer-header { justify-content: flex-end; padding: 10px; height: 50px; }
+    .close-btn { background: rgba(255,255,255,0.05); }
+    
     .mobile-tabs { display: flex; }
-    
-    .view-section { display: none; padding: 15px; }
+    .view-section { display: none; padding: 10px; }
     .view-section.active { display: flex; }
+    #view-preview { border-left: none; }
     
-    textarea { font-size: 16px; } 
-    .mobile-only { display: flex !important; margin-right: auto; }
-    .status-bar { display: none; }
-    .save-button { padding: 10px 25px; }
+    .editor-group { min-height: 40%; }
+    .save-button { width: 100%; padding: 12px; }
 }
 
 @media screen and (min-width: 769px) {
     .healer-body { flex-direction: row; }
-    .view-section { display: flex !important; width: 50%; }
-    #view-preview { border-left: 1px solid var(--healer-border); }
-    .mobile-tabs { display: none !important; }
 }
 </style>
 `;
@@ -494,5 +457,5 @@ $('head').append(styles);
 
 jQuery(async () => {
     loadSettings();
-    console.log(`[${extensionName}] Ready (Lavender Theme).`);
+    console.log(`[${extensionName}] Ready (Lavender Edition).`);
 });
