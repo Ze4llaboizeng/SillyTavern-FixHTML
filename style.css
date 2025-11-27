@@ -1,10 +1,10 @@
+/* --- Base Desktop Styles --- */
 .html-healer-settings {
     margin-top: 10px;
     border-top: 1px solid rgba(128, 128, 128, 0.4);
     padding-top: 10px;
 }
 
-/* Control Container */
 .healer-controls {
     display: flex;
     align-items: center;
@@ -13,19 +13,22 @@
     padding: 0 5px;
 }
 
-/* The Label */
 .healer-controls label {
     font-weight: bold;
     font-size: 0.9em;
+    flex-grow: 1; /* Allows label to take space */
 }
 
-/* The Input Box */
 .healer-controls input {
     width: 60px;
     text-align: center;
+    padding: 5px;
+    border-radius: 5px;
+    border: 1px solid var(--smart-theme-border, #ccc);
+    background-color: var(--smart-theme-bg, #000);
+    color: var(--smart-theme-text, #fff);
 }
 
-/* The Button */
 .html-healer-settings .menu_button {
     background-color: var(--smart-theme-color, #4caf50);
     color: var(--smart-theme-text, #ffffff);
@@ -36,11 +39,7 @@
     cursor: pointer;
     border: 1px solid var(--smart-theme-border, transparent);
     transition: filter 0.2s;
-    margin-top: 5px;
-}
-
-.html-healer-settings .menu_button:hover {
-    filter: brightness(1.2);
+    margin-top: 10px;
 }
 
 .html-healer-settings .styled_description_block {
@@ -48,17 +47,32 @@
     font-size: 0.85rem;
     padding: 0 5px;
 }
-    border: 1px solid var(--smart-theme-border, transparent);
-    transition: filter 0.2s;
-    margin-top: 5px;
-}
 
-.html-healer-settings .menu_button:hover {
-    filter: brightness(1.2);
-}
+/* --- MOBILE SPECIFIC TWEAKS --- */
+/* Takes effect on screens narrower than 600px */
+@media screen and (max-width: 600px) {
+    
+    /* 1. Stack the input below the label */
+    .healer-controls {
+        flex-direction: column; /* Stack vertically */
+        align-items: flex-start; /* Align to left */
+        gap: 5px;
+    }
 
-.html-healer-settings .styled_description_block {
-    opacity: 0.7;
-    font-size: 0.85rem;
-    padding: 0 5px;
+    /* 2. Make the input box huge for fingers */
+    .healer-controls input {
+        width: 100%; /* Full width */
+        height: 40px; /* Taller touch target */
+        font-size: 1.1em;
+    }
+
+    /* 3. Make the Fix Button taller and easier to hit */
+    .html-healer-settings .menu_button {
+        padding: 15px; /* Fat button */
+        font-size: 1.1em;
+    }
+
+    .html-healer-settings .styled_description_block {
+        font-size: 1em; /* Readable text */
+    }
 }
