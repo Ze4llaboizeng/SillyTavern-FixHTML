@@ -1,6 +1,6 @@
 const extensionName = "html-healer";
 
-// --- 1. Logic (เหมือนเดิม) ---
+// --- 1. Logic ---
 function splitContent(rawText) {
     let cleanText = rawText
         .replace(/&lt;think&gt;/gi, "<think>")
@@ -73,7 +73,8 @@ let targetMessageId = null;
 // ⭐ME⭐
 const authorConfig = {
     name: "Zealllll",
-    avatarUrl: "scripts/extensions/third-party/SillyTavern-FixHTML/avatar.png"
+    // 🔴 แก้ Path ให้ตรงกับโฟลเดอร์จริง (เพิ่ม -main ตามชื่อไฟล์ zip)
+    avatarUrl: "scripts/extensions/third-party/SillyTavern-FixHTML-main/avatar.png"
 };
 
 function openSplitEditor() {
@@ -254,7 +255,9 @@ const styles = `
 /* CORE */
 .html-healer-box * { box-sizing: border-box; }
 .html-healer-overlay {
-    position: fixed !important; top: 0; left: 0; width: 100vw; height: 100vh;
+    position: fixed !important; top: 0; left: 0; width: 100vw; 
+    /* 🔴 แก้ไข: ใช้ dvh เพื่อให้เต็มจอจริงในมือถือ (ไม่โดนแถบ URL บัง) */
+    height: 100vh; height: 100dvh; 
     z-index: 99999 !important; background: rgba(0,0,0,0.85);
     display: flex; align-items: center; justify-content: center;
     backdrop-filter: blur(4px);
@@ -284,7 +287,7 @@ const styles = `
     background: rgba(255, 255, 255, 0.1);
     padding: 4px 10px; border-radius: 20px;
     font-size: 0.8em; color: #aaa; border: 1px solid rgba(255,255,255,0.1);
-    white-space: nowrap; /* ห้ามชื่อขึ้นบรรทัดใหม่ */
+    white-space: nowrap; 
 }
 .author-img {
     width: 20px; height: 20px; border-radius: 50%; object-fit: cover;
@@ -349,9 +352,12 @@ textarea {
 
 /* FOOTER */
 .healer-footer {
-    height: 60px; background: #252525; border-top: 1px solid #444;
+    height: auto; min-height: 60px; /* ยืดหยุ่นได้ */
+    background: #252525; border-top: 1px solid #444;
     display: flex; align-items: center; justify-content: space-between;
-    padding: 0 15px; flex-shrink: 0; gap: 10px;
+    padding: 10px 15px; flex-shrink: 0; gap: 10px;
+    /* 🔴 รองรับ iPhone รุ่นใหม่ที่มีขีดล่าง */
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
 }
 .status-bar { font-size: 0.9em; color: #ffab40; font-weight: 500; margin-left: auto; margin-right: 15px;}
 .save-button {
@@ -359,7 +365,7 @@ textarea {
     border: none; padding: 10px 30px; border-radius: 20px;
     font-weight: bold; font-size: 1em; cursor: pointer;
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    white-space: nowrap;
+    white-space: nowrap; flex-shrink: 0;
 }
 .save-button:hover { filter: brightness(1.1); transform: translateY(-2px); }
 
@@ -369,7 +375,11 @@ textarea {
 
 /* --- MOBILE TWEAKS (แก้ใหม่) --- */
 @media screen and (max-width: 768px) {
-    .html-healer-box { width: 100%; height: 100%; border-radius: 0; border: none; }
+    /* 🔴 ปรับกล่องให้เต็มจอแบบ 100dvh (Dynamic Viewport Height) */
+    .html-healer-box { 
+        width: 100%; height: 100dvh; 
+        border-radius: 0; border: none; 
+    }
     
     /* Header: ซ่อนฝั่งซ้ายทิ้งไปเลย เพื่อให้ Tabs ชิดซ้าย */
     .header-left { display: none !important; } 
@@ -388,9 +398,17 @@ textarea {
     textarea { font-size: 16px; } /* 16px ป้องกัน iOS Zoom */
     
     /* Footer & Badge */
-    .mobile-only { display: flex; margin-right: auto; max-width: 55%; overflow: hidden; }
-    .author-badge { padding: 4px 8px; font-size: 0.75em; } /* ลดขนาดป้าย */
-    .save-button { padding: 8px 20px; font-size: 0.9em; } /* ลดขนาดปุ่ม Save */
+    /* 🔴 บังคับให้ badge แสดงผลใน footer และจัด layout ให้สวย */
+    .mobile-only { 
+        display: flex !important; 
+        align-items: center;
+        margin-right: auto; 
+        max-width: 50%; 
+        overflow: hidden; 
+    }
+    
+    .author-badge { padding: 4px 8px; font-size: 0.75em; } 
+    .save-button { padding: 8px 16px; font-size: 0.9em; } 
     .status-bar { display: none; }
 }
 
