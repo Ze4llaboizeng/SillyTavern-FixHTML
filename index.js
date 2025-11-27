@@ -1,72 +1,65 @@
-
 const extensionName = "html-healer";
 
-// --- 1. Logic (Block Segmentation) ---
+// --- 1. Logic (Block Segmentation & Split) ---
 
+let initialSegments = []; // เก็บค่าเริ่มต้นไว้กด Reset
+let currentSegments = []; // ค่าปัจจุบันที่ User แก้ไข
+
+// แยกข้อความและเดาเบื้องต้น (Heuristic)
 function parseSegments(rawText) {
-    // Normalize Tag
     let cleanText = rawText
         .replace(/&lt;think&gt;/gi, "<think>")
         .replace(/&lt;\/think&gt;/gi, "</think>");
 
-    // แยกย่อหน้าด้วย Double Newline เพื่อเช็คทุกพารากราฟ
     const rawBlocks = cleanText.split(/\n{2,}/);
     
-    let isThinking = false; 
-    let hasFoundStoryStart = false; 
+    // Logic เดาเบื้องต้น (เหมือนเดิม) เพื่อให้ User ไม่ต้องเริ่มจากศูนย์
+    let isThinking = false;
+    let hasFoundStoryStart = false;
 
     return rawBlocks.map((block, index) => {
         let text = block.trim();
         if (!text) return null;
 
-        // เช็คเงื่อนไข:
-        // 1. เริ่มต้นด้วย Tag เปิดที่ดูซับซ้อน (เช่น <div class="..."> หรือ <think>) โดยไม่มี text นำหน้า
-        //    (regex นี้เช็คว่าตัวแรกคือ < ตามด้วยตัวอักษร และไม่ใช่ tag ทั่วไป)
         const startsWithComplexTag = /^<[^/](?!br|i|b|em|strong|span|p)[^>]*>?/i.test(text);
-        
-        // 2. มี Tag ปิดความคิด
         const hasCloseThink = /<\/think>|Close COT|End of thought/i.test(text);
-
-        let assignedType = 'story'; // ค่าเริ่มต้นสมมติว่าเป็นเนื้อเรื่อง
+        
+        // Default เดาว่าเป็น Story ไว้ก่อน
+        let assignedType = 'story'; 
 
         if (!hasFoundStoryStart) {
-            // ถ้ายังไม่เจอเนื้อเรื่อง เราจะสงสัยว่าเป็น Think ไว้ก่อน
-            
-            // กรณี 1: บล็อกนี้เริ่มต้นด้วย Tag ประหลาด หรือมี <think> หรือเรากำลังอยู่ในโหมดคิด
             if (startsWithComplexTag || /<think>/i.test(text) || isThinking) {
                 assignedType = 'think';
-                isThinking = true; // ล็อกสถานะว่ากำลังคิด
-            } 
-            // กรณี 2: ไม่มี Tag แต่มันอยู่ก่อนเนื้อเรื่อง (และไม่ใช่บล็อกแรกสุดที่อาจจะเป็น text ธรรมดา)
-            // แต่เพื่อให้ User เลือกง่าย เราจะเหมาว่าเป็น Think ไปก่อนถ้ามันดูไม่ใช่บทพูดชัดเจน
-            // (ในที่นี้ใช้ Logic เดิมคือ ถ้าเข้าเงื่อนไข Tag ถึงนับ)
-            
-            // ตรวจสอบจุดจบความคิด
+                isThinking = true;
+            }
             if (hasCloseThink) {
                 isThinking = false;
-                hasFoundStoryStart = true; // บล็อกถัดไปจะเป็น Story แน่นอน
-                assignedType = 'think'; // บล็อกนี้ยังคงเป็นส่วนหนึ่งของความคิด
+                hasFoundStoryStart = true;
+                assignedType = 'think';
             }
         } else {
-            // ถ้าเจอจุดตัดเข้าเนื้อเรื่องแล้ว บล็อกที่เหลือคือ Story
             assignedType = 'story';
         }
+        
+        // กันพลาด: บล็อกแรกถ้าไม่มี tag อะไรเลย ให้เป็น Story (ถ้าไม่ได้อยู่ในโหมดคิด)
+        if (index === 0 && !isThinking && !startsWithComplexTag) assignedType = 'story';
 
-        // *Special Case Check*: ถ้าบล็อกนี้ไม่มี Tag อะไรเลย และเราไม่ได้ locked ว่ากำลังคิด 
-        // ให้ถือว่าเป็น Story (แก้ปัญหาเผลอไปรวบ text บรรทัดแรกเป็น think)
-        if (!isThinking && !startsWithComplexTag && !hasFoundStoryStart && index === 0) {
-             assignedType = 'story';
-        }
-
-        return {
-            id: index,
-            text: text,
-            type: assignedType
-        };
+        return { id: index, text: text, type: assignedType };
     }).filter(b => b !== null);
 }
 
-// Logic ซ่อม HTML (คงเดิม)
+// ฟังก์ชันกำหนดจุดตัด (The Core Logic Change)
+function applySplitPoint(startIndex) {
+    currentSegments.forEach((seg) => {
+        if (seg.id < startIndex) {
+            seg.type = 'think'; // ก่อนหน้าจุดเลือก เป็นความคิดทั้งหมด
+        } else {
+            seg.type = 'story'; // ตั้งแต่จุดเลือกเป็นต้นไป เป็นเนื้อเรื่อง
+        }
+    });
+}
+
+// Logic ซ่อม HTML
 function stackBasedFix(htmlSegment) {
     const voidTags = new Set([
         "area", "base", "br", "col", "embed", "hr", "img", "input", 
@@ -96,7 +89,6 @@ function countWords(str) {
 
 // --- 2. UI Builder ---
 let targetMessageId = null;
-let currentSegments = [];
 
 const authorConfig = {
     name: "Zealllll",
@@ -112,7 +104,10 @@ function openSplitEditor() {
     targetMessageId = lastIndex;
     const originalText = chat[lastIndex].mes;
     
-    currentSegments = parseSegments(originalText);
+    // Init Logic
+    initialSegments = parseSegments(originalText);
+    // Clone เพื่อไม่ให้แก้แล้วพังไปถึงตัวต้นฉบับถ้ายังไม่เซฟ
+    currentSegments = JSON.parse(JSON.stringify(initialSegments));
 
     const modalHtml = `
     <div id="html-healer-modal" class="html-healer-overlay">
@@ -123,10 +118,13 @@ function openSplitEditor() {
                     <div class="header-icon"><i class="fa-solid fa-layer-group"></i></div>
                     <div class="header-text">
                         <span class="title">Segment Selector</span>
-                        <span class="subtitle">Click blocks to toggle</span>
+                        <span class="subtitle">Click the <b>First Story Message</b></span>
                     </div>
                 </div>
                 <div class="header-controls">
+                     <button class="reset-btn" id="btn-reset-split" title="Reset to Auto-Detect">
+                        <i class="fa-solid fa-rotate-left"></i> Reset
+                     </button>
                      <div class="author-pill">
                         <img src="${authorConfig.avatarUrl}" onerror="this.style.display='none'">
                         <span class="author-name">${authorConfig.name}</span>
@@ -140,8 +138,7 @@ function openSplitEditor() {
             <div class="segment-picker-area">
                 <div class="segment-scroller" id="segment-container"></div>
                 <div class="picker-instruction">
-                    <i class="fa-solid fa-hand-pointer"></i> Tap blocks to switch: 
-                    <span style="color:#a6b1e1">🧠 Think</span> / <span style="color:#98c379">💬 Story</span>
+                    <i class="fa-solid fa-arrow-pointer"></i> คลิกที่บล็อกที่เป็น <b>"จุดเริ่มต้นเนื้อเรื่อง"</b> (ด้านบนจะกลายเป็นความคิดอัตโนมัติ)
                 </div>
             </div>
             
@@ -149,7 +146,7 @@ function openSplitEditor() {
                 <div id="view-editor" class="view-section active">
                     <div class="editor-group think-group">
                         <div class="group-toolbar">
-                            <span class="label"><i class="fa-solid fa-brain"></i> Thought</span>
+                            <span class="label"><i class="fa-solid fa-brain"></i> Thinking Process</span>
                             <div class="toolbar-actions">
                                 <span class="word-count" id="count-cot">0w</span>
                                 <button class="action-btn" onclick="copyText('editor-cot')"><i class="fa-regular fa-copy"></i></button>
@@ -160,10 +157,10 @@ function openSplitEditor() {
 
                     <div class="editor-group main-group">
                         <div class="group-toolbar">
-                            <span class="label"><i class="fa-solid fa-comments"></i> Story</span>
+                            <span class="label"><i class="fa-solid fa-comments"></i> Story Content</span>
                             <div class="toolbar-actions">
                                 <span class="word-count" id="count-main">0w</span>
-                                <button class="action-btn" id="btn-heal-html"><i class="fa-solid fa-wand-magic-sparkles"></i> Fix</button>
+                                <button class="action-btn" id="btn-heal-html"><i class="fa-solid fa-wand-magic-sparkles"></i> Fix HTML</button>
                             </div>
                         </div>
                         <textarea id="editor-main" placeholder="Story content..."></textarea>
@@ -173,7 +170,7 @@ function openSplitEditor() {
 
             <div class="healer-footer">
                 <div class="footer-status">
-                     <span class="tag-badge"><i class="fa-solid fa-check-double"></i> Interactive</span>
+                     <span class="tag-badge"><i class="fa-solid fa-check-double"></i> Split Mode</span>
                 </div>
                 <button id="btn-save-split" class="save-button">
                     <span class="btn-content"><i class="fa-solid fa-floppy-disk"></i> Save</span>
@@ -186,12 +183,20 @@ function openSplitEditor() {
     $(document.body).append(modalHtml);
     renderSegments();
 
-    // --- Events ---
+    // --- EVENTS ---
+
+    // 1. Click to Split (คลิกเพื่อเลือกจุดเริ่มเรื่อง)
     $('#segment-container').on('click', '.segment-block', function() {
         const id = $(this).data('id');
-        const seg = currentSegments.find(s => s.id === id);
-        seg.type = seg.type === 'think' ? 'story' : 'think';
+        applySplitPoint(id); // สั่งตัดแบ่งทันที
         renderSegments(); 
+    });
+
+    // 2. Reset Button (ปุ่มย้อนกลับ/รีเซ็ต)
+    $('#btn-reset-split').on('click', () => {
+        currentSegments = JSON.parse(JSON.stringify(initialSegments)); // คืนค่าเดิม
+        renderSegments();
+        toastr.info("Reset to initial detection.");
     });
 
     $('#btn-heal-html').on('click', () => {
@@ -221,19 +226,31 @@ function openSplitEditor() {
 function renderSegments() {
     const container = $('#segment-container');
     container.empty();
+    
     currentSegments.forEach(seg => {
-        const icon = seg.type === 'think' ? '<i class="fa-solid fa-brain"></i>' : '<i class="fa-solid fa-comment"></i>';
+        // ถ้าเป็น Think ให้เป็นไอคอนสมอง, Story เป็นไอคอนพูด
+        const isThink = seg.type === 'think';
+        const icon = isThink ? '<i class="fa-solid fa-brain"></i>' : '<i class="fa-solid fa-comment"></i>';
+        
+        // เพิ่ม Visual Hint: ถ้าเป็นจุดเริ่ม Story ให้ไฮไลท์เด่นๆ หน่อยไหม? หรือปล่อยปกติ
+        // เอาแบบเรียบง่าย: สีต่างกันชัดเจนพอ
+        
         container.append(`
             <div class="segment-block type-${seg.type}" data-id="${seg.id}">
                 <div class="seg-icon">${icon}</div>
                 <div class="seg-text">${seg.text.substring(0, 80)}...</div>
-                <div class="seg-toggle"><i class="fa-solid fa-repeat"></i></div>
+                ${!isThink ? '<div class="seg-badge">Story Start?</div>' : ''} 
             </div>
         `);
     });
     
+    // ซ่อน Badge "Story Start?" ทั้งหมด แล้วโชว์แค่ตัวแรกที่เป็น Story
+    $('.seg-badge').hide();
+    $('.segment-block.type-story').first().find('.seg-badge').show();
+
     const thinkText = currentSegments.filter(s => s.type === 'think').map(s => s.text).join('\n\n');
     const storyText = currentSegments.filter(s => s.type === 'story').map(s => s.text).join('\n\n');
+    
     $('#editor-cot').val(thinkText);
     $('#editor-main').val(storyText);
     updateCounts();
@@ -314,13 +331,21 @@ const styles = `
 .header-controls { display: flex; gap: 10px; align-items: center; }
 .close-btn { cursor: pointer; padding: 5px; color: var(--lavender-text); font-size: 1.2em; }
 
-/* AUTHOR PILL (Fix for Mobile) */
+/* RESET BUTTON */
+.reset-btn {
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+    color: #ddd; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 0.8em;
+    display: flex; align-items: center; gap: 5px;
+}
+.reset-btn:hover { background: rgba(255,255,255,0.2); color: #fff; }
+
+/* AUTHOR PILL */
 .author-pill {
     display: flex; align-items: center; gap: 8px;
     background: rgba(255, 255, 255, 0.05);
     padding: 4px 10px; border-radius: 20px;
     border: 1px solid var(--lavender-border);
-    flex-shrink: 0; /* ห้ามหด */
+    flex-shrink: 0; 
 }
 .author-pill img {
     width: 24px; height: 24px; border-radius: 50%; object-fit: cover;
@@ -332,7 +357,7 @@ const styles = `
 .segment-picker-area {
     padding: 8px; background: rgba(0,0,0,0.2);
     border-bottom: 1px solid var(--lavender-border);
-    height: 150px; display: flex; flex-direction: column; gap: 5px;
+    height: 160px; display: flex; flex-direction: column; gap: 5px;
 }
 .segment-scroller { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
 .picker-instruction { font-size: 0.75em; color: #888; text-align: center; }
@@ -341,10 +366,15 @@ const styles = `
     display: flex; align-items: center; gap: 10px; padding: 8px;
     border-radius: 4px; cursor: pointer; border: 1px solid transparent;
     font-size: 0.85em; background: rgba(255,255,255,0.03);
+    position: relative;
 }
-.segment-block.type-think { border-color: var(--lavender-secondary); background: rgba(166, 177, 225, 0.1); }
-.segment-block.type-story { border-color: rgba(152, 195, 121, 0.4); background: rgba(152, 195, 121, 0.05); }
+.segment-block.type-think { border-color: var(--lavender-secondary); background: rgba(166, 177, 225, 0.1); opacity: 0.7; }
+.segment-block.type-story { border-color: rgba(152, 195, 121, 0.4); background: rgba(152, 195, 121, 0.1); font-weight: bold;}
+
 .seg-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ddd; }
+.seg-badge {
+    background: #98c379; color: #222; font-size: 0.7em; padding: 2px 6px; border-radius: 4px; font-weight: bold;
+}
 
 /* EDITOR BODY */
 .healer-body { flex: 1; display: flex; overflow: hidden; }
@@ -360,12 +390,12 @@ const styles = `
 .action-btn { background: none; border: 1px solid #444; color: #ccc; border-radius: 4px; cursor: pointer; font-size: 0.75em; padding: 2px 6px; }
 textarea { flex: 1; width: 100%; border: none; background: transparent; color: #eee; padding: 10px; resize: none; outline: none; font-family: monospace; }
 
-/* FOOTER (Fix Button Falling Off) */
+/* FOOTER */
 .healer-footer {
     padding: 10px 15px; background: var(--lavender-dark);
     border-top: 1px solid var(--lavender-border);
     display: flex; justify-content: space-between; align-items: center;
-    flex-wrap: wrap; /* ให้ตกบรรทัดได้ถ้าจอเล็กมาก */
+    flex-wrap: wrap; 
     gap: 10px;
     padding-bottom: max(10px, env(safe-area-inset-bottom));
 }
@@ -373,25 +403,23 @@ textarea { flex: 1; width: 100%; border: none; background: transparent; color: #
 .save-button {
     background: var(--lavender-secondary); color: #222; border: none;
     padding: 8px 20px; border-radius: 20px; font-weight: bold; cursor: pointer;
-    white-space: nowrap; /* ไม่ให้ข้อความในปุ่มแตกบรรทัด */
+    white-space: nowrap; 
     flex-shrink: 0;
 }
 
 /* MOBILE RESPONSIVE TWEAKS */
 @media screen and (max-width: 600px) {
     .html-healer-box { width: 100%; height: 100%; border-radius: 0; border: none; }
-    .header-text .subtitle { display: none; } /* ซ่อนคำอธิบายยาวๆ */
+    .header-text .subtitle { display: none; }
     
-    /* ปรับ Icon ผู้สร้างในมือถือ */
-    .author-pill span.author-name { display: none; } /* ซ่อนชื่อ เหลือแต่รูป */
+    .author-pill span.author-name { display: none; } 
     .author-pill { padding: 2px; border: none; background: transparent; }
     
-    .segment-picker-area { height: 130px; }
+    .segment-picker-area { height: 140px; }
     .view-section { padding: 5px; gap: 5px; }
     
-    /* Footer แน่นๆ */
     .healer-footer { justify-content: flex-end; } 
-    .footer-status { display: none; } /* ซ่อน status ถ้าที่เต็ม */
+    .footer-status { display: none; } 
 }
 </style>
 `;
