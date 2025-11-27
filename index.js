@@ -1,3 +1,36 @@
+const extensionName = "html-healer";
+
+// --- Helper: แยกส่วนประกอบข้อความ ---
+function splitContent(rawText) {
+    const match = rawText.match(/<think>([\s\S]*?)<\/think>/i);
+    if (match) {
+        return {
+            cot: match[1].trim(),
+            main: rawText.replace(match[0], "").trim()
+        };
+    }
+    const openIndex = rawText.search(/<think>/i);
+    if (openIndex !== -1) {
+        return {
+            cot: rawText.substring(openIndex + 7).trim(),
+            main: rawText.substring(0, openIndex).trim()
+        };
+    }
+    return { cot: "", main: rawText };
+}
+
+// --- Helper: ซ่อม HTML ---
+function healHtmlContent(htmlContent) {
+    if (!htmlContent) return "";
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlContent, 'text/html');
+    const scripts = doc.getElementsByTagName('script');
+    for (let i = scripts.length - 1; i >= 0; i--) {
+        scripts[i].parentNode.removeChild(scripts[i]);
+    }
+    return doc.body.innerHTML;
+}
+
 /**
  * UI: Split Editor Modal with "Tag Hunter"
  */
@@ -159,3 +192,112 @@ function openSplitEditor() {
         $('#html-healer-modal').remove();
     });
 }
+
+/**
+ * UI: Settings Menu
+ */
+function loadSettings() {
+    if ($('.html-healer-settings').length > 0) return;
+    const settingsHtml = `
+    <div class="html-healer-settings">
+        <div class="inline-drawer">
+            <div class="inline-drawer-toggle inline-drawer-header">
+                <b>HTML & CoT Healer</b>
+                <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+            </div>
+            <div class="inline-drawer-content">
+                <div class="styled_description_block">
+                    Split editor with Live Preview for Thinking Process.
+                </div>
+                <div id="html-healer-open-split" class="menu_button">
+                    <i class="fa-solid fa-columns"></i> Open Split Editor
+                </div>
+            </div>
+        </div>
+    </div>
+    `;
+    $('#extensions_settings').append(settingsHtml);
+    $('#html-healer-open-split').on('click', openSplitEditor);
+}
+
+// CSS Style (รวม CSS สำหรับจำลองกล่อง think ในหน้า Preview)
+const styles = `
+<style>
+.html-healer-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.85); z-index: 9999;
+    display: flex; justify-content: center; align-items: center;
+}
+.html-healer-box.split-mode {
+    background: var(--smart-background-color, #202020);
+    border: 1px solid var(--smart-border-color, #444);
+    width: 95%; max-width: 1000px; height: 90%;
+    display: flex; flex-direction: column;
+    border-radius: 10px; padding: 15px;
+    box-shadow: 0 0 30px rgba(0,0,0,0.8);
+}
+.healer-header { display: flex; justify-content: space-between; margin-bottom: 10px; border-bottom: 1px solid #444; padding-bottom: 5px;}
+.healer-header h3 { margin: 0; color: var(--smart-text-color, #eee); }
+.close-btn { cursor: pointer; font-size: 1.2em; color: #ff5555; }
+
+/* Grid Layout */
+.healer-body-grid { 
+    flex: 1; display: flex; gap: 15px; overflow: hidden; 
+}
+.edit-column { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+.preview-column { 
+    flex: 1; display: flex; flex-direction: column; 
+    border-left: 1px solid #444; padding-left: 15px; 
+}
+
+.editor-section { display: flex; flex-direction: column; flex: 1; }
+.section-label { 
+    display: flex; justify-content: space-between; align-items: center; 
+    margin-bottom: 5px; font-weight: bold; color: var(--smart-text-color);
+}
+.mini-btn {
+    background: #444; color: white; padding: 2px 8px; border-radius: 4px; 
+    font-size: 0.8em; cursor: pointer; border: 1px solid #666;
+}
+.mini-btn:hover { background: #666; }
+
+textarea { 
+    flex: 1; resize: none; 
+    background: rgba(0,0,0,0.2); color: var(--smart-text-color, #ccc);
+    border: 1px solid var(--smart-border-color, #555);
+    font-family: monospace; padding: 10px; border-radius: 5px;
+    line-height: 1.4;
+}
+
+/* Preview Styles */
+.preview-content {
+    flex: 1; overflow-y: auto; 
+    background: rgba(0, 0, 0, 0.15);
+    border: 1px solid var(--smart-border-color, #444);
+    border-radius: 5px; padding: 15px;
+    color: var(--smart-text-color, #ccc);
+    font-family: sans-serif;
+    line-height: 1.5;
+}
+
+/* SIMULATE THINK BOX IN PREVIEW */
+.preview-content think {
+    display: block;
+    background-color: rgba(128, 128, 128, 0.1);
+    border-left: 4px solid rgba(128, 128, 128, 0.5);
+    padding: 10px;
+    margin: 10px 0;
+    font-style: italic;
+    opacity: 0.8;
+    border-radius: 4px;
+}
+
+.healer-footer { margin-top: 15px; display: flex; align-items: center; }
+</style>
+`;
+$('head').append(styles);
+
+jQuery(async () => {
+    loadSettings();
+    console.log(`[${extensionName}] Ready (Live Preview Mode).`);
+});
