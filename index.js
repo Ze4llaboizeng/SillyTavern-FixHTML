@@ -5,15 +5,16 @@ const extensionName = "html-healer";
 let initialSegments = []; // เก็บค่าเริ่มต้นไว้กด Reset
 let currentSegments = []; // ค่าปัจจุบันที่ User แก้ไข
 
-// แยกข้อความและเดาเบื้องต้น (Heuristic)
+// แยกข้อความและเดาเบื้องต้น
 function parseSegments(rawText) {
     let cleanText = rawText
         .replace(/&lt;think&gt;/gi, "<think>")
         .replace(/&lt;\/think&gt;/gi, "</think>");
 
+    // 1. ตรวจจับการแบ่งพารากราฟด้วย \n\n (2 บรรทัดขึ้นไป)
     const rawBlocks = cleanText.split(/\n{2,}/);
     
-    // Logic เดาเบื้องต้น (เหมือนเดิม) เพื่อให้ User ไม่ต้องเริ่มจากศูนย์
+    // Logic เดาเบื้องต้น
     let isThinking = false;
     let hasFoundStoryStart = false;
 
@@ -24,7 +25,6 @@ function parseSegments(rawText) {
         const startsWithComplexTag = /^<[^/](?!br|i|b|em|strong|span|p)[^>]*>?/i.test(text);
         const hasCloseThink = /<\/think>|Close COT|End of thought/i.test(text);
         
-        // Default เดาว่าเป็น Story ไว้ก่อน
         let assignedType = 'story'; 
 
         if (!hasFoundStoryStart) {
@@ -41,25 +41,25 @@ function parseSegments(rawText) {
             assignedType = 'story';
         }
         
-        // กันพลาด: บล็อกแรกถ้าไม่มี tag อะไรเลย ให้เป็น Story (ถ้าไม่ได้อยู่ในโหมดคิด)
+        // กันพลาด: ถ้าบล็อกแรกไม่มี tag อะไรเลย ให้เป็น Story ไปก่อน
         if (index === 0 && !isThinking && !startsWithComplexTag) assignedType = 'story';
 
         return { id: index, text: text, type: assignedType };
     }).filter(b => b !== null);
 }
 
-// ฟังก์ชันกำหนดจุดตัด (The Core Logic Change)
+// ฟังก์ชันกำหนดจุดตัด (เมื่อ User คลิก)
 function applySplitPoint(startIndex) {
     currentSegments.forEach((seg) => {
         if (seg.id < startIndex) {
-            seg.type = 'think'; // ก่อนหน้าจุดเลือก เป็นความคิดทั้งหมด
+            seg.type = 'think'; // ก่อนหน้าจุดเลือก = ความคิด
         } else {
-            seg.type = 'story'; // ตั้งแต่จุดเลือกเป็นต้นไป เป็นเนื้อเรื่อง
+            seg.type = 'story'; // ตั้งแต่จุดเลือกเป็นต้นไป = เนื้อเรื่อง
         }
     });
 }
 
-// Logic ซ่อม HTML
+// Logic ซ่อม HTML (เหมือนเดิม)
 function stackBasedFix(htmlSegment) {
     const voidTags = new Set([
         "area", "base", "br", "col", "embed", "hr", "img", "input", 
@@ -104,9 +104,8 @@ function openSplitEditor() {
     targetMessageId = lastIndex;
     const originalText = chat[lastIndex].mes;
     
-    // Init Logic
+    // เริ่มต้น
     initialSegments = parseSegments(originalText);
-    // Clone เพื่อไม่ให้แก้แล้วพังไปถึงตัวต้นฉบับถ้ายังไม่เซฟ
     currentSegments = JSON.parse(JSON.stringify(initialSegments));
 
     const modalHtml = `
@@ -122,12 +121,11 @@ function openSplitEditor() {
                     </div>
                 </div>
                 <div class="header-controls">
-                     <button class="reset-btn" id="btn-reset-split" title="Reset to Auto-Detect">
-                        <i class="fa-solid fa-rotate-left"></i> Reset
+                     <button class="reset-btn" id="btn-reset-split" title="Reset">
+                        <i class="fa-solid fa-rotate-left"></i> <span class="reset-text">Reset</span>
                      </button>
                      <div class="author-pill">
                         <img src="${authorConfig.avatarUrl}" onerror="this.style.display='none'">
-                        <span class="author-name">${authorConfig.name}</span>
                     </div>
                     <div class="close-btn" onclick="$('#html-healer-modal').remove()">
                         <i class="fa-solid fa-xmark"></i>
@@ -138,7 +136,7 @@ function openSplitEditor() {
             <div class="segment-picker-area">
                 <div class="segment-scroller" id="segment-container"></div>
                 <div class="picker-instruction">
-                    <i class="fa-solid fa-arrow-pointer"></i> คลิกที่บล็อกที่เป็น <b>"จุดเริ่มต้นเนื้อเรื่อง"</b> (ด้านบนจะกลายเป็นความคิดอัตโนมัติ)
+                    <i class="fa-solid fa-arrow-pointer"></i> คลิกที่บล็อกที่เป็น <b>"จุดเริ่มเนื้อเรื่อง"</b> (ด้านบนจะเป็นความคิดอัตโนมัติ)
                 </div>
             </div>
             
@@ -146,7 +144,7 @@ function openSplitEditor() {
                 <div id="view-editor" class="view-section active">
                     <div class="editor-group think-group">
                         <div class="group-toolbar">
-                            <span class="label"><i class="fa-solid fa-brain"></i> Thinking Process</span>
+                            <span class="label"><i class="fa-solid fa-brain"></i> Thinking</span>
                             <div class="toolbar-actions">
                                 <span class="word-count" id="count-cot">0w</span>
                                 <button class="action-btn" onclick="copyText('editor-cot')"><i class="fa-regular fa-copy"></i></button>
@@ -157,10 +155,10 @@ function openSplitEditor() {
 
                     <div class="editor-group main-group">
                         <div class="group-toolbar">
-                            <span class="label"><i class="fa-solid fa-comments"></i> Story Content</span>
+                            <span class="label"><i class="fa-solid fa-comments"></i> Story</span>
                             <div class="toolbar-actions">
                                 <span class="word-count" id="count-main">0w</span>
-                                <button class="action-btn" id="btn-heal-html"><i class="fa-solid fa-wand-magic-sparkles"></i> Fix HTML</button>
+                                <button class="action-btn" id="btn-heal-html"><i class="fa-solid fa-wand-magic-sparkles"></i> Fix</button>
                             </div>
                         </div>
                         <textarea id="editor-main" placeholder="Story content..."></textarea>
@@ -173,7 +171,7 @@ function openSplitEditor() {
                      <span class="tag-badge"><i class="fa-solid fa-check-double"></i> Split Mode</span>
                 </div>
                 <button id="btn-save-split" class="save-button">
-                    <span class="btn-content"><i class="fa-solid fa-floppy-disk"></i> Save</span>
+                    <span class="btn-content"><i class="fa-solid fa-floppy-disk"></i> Save Changes</span>
                 </button>
             </div>
         </div>
@@ -183,18 +181,15 @@ function openSplitEditor() {
     $(document.body).append(modalHtml);
     renderSegments();
 
-    // --- EVENTS ---
-
-    // 1. Click to Split (คลิกเพื่อเลือกจุดเริ่มเรื่อง)
+    // Event Handlers
     $('#segment-container').on('click', '.segment-block', function() {
         const id = $(this).data('id');
-        applySplitPoint(id); // สั่งตัดแบ่งทันที
+        applySplitPoint(id); 
         renderSegments(); 
     });
 
-    // 2. Reset Button (ปุ่มย้อนกลับ/รีเซ็ต)
     $('#btn-reset-split').on('click', () => {
-        currentSegments = JSON.parse(JSON.stringify(initialSegments)); // คืนค่าเดิม
+        currentSegments = JSON.parse(JSON.stringify(initialSegments));
         renderSegments();
         toastr.info("Reset to initial detection.");
     });
@@ -228,23 +223,19 @@ function renderSegments() {
     container.empty();
     
     currentSegments.forEach(seg => {
-        // ถ้าเป็น Think ให้เป็นไอคอนสมอง, Story เป็นไอคอนพูด
         const isThink = seg.type === 'think';
         const icon = isThink ? '<i class="fa-solid fa-brain"></i>' : '<i class="fa-solid fa-comment"></i>';
-        
-        // เพิ่ม Visual Hint: ถ้าเป็นจุดเริ่ม Story ให้ไฮไลท์เด่นๆ หน่อยไหม? หรือปล่อยปกติ
-        // เอาแบบเรียบง่าย: สีต่างกันชัดเจนพอ
         
         container.append(`
             <div class="segment-block type-${seg.type}" data-id="${seg.id}">
                 <div class="seg-icon">${icon}</div>
-                <div class="seg-text">${seg.text.substring(0, 80)}...</div>
-                ${!isThink ? '<div class="seg-badge">Story Start?</div>' : ''} 
+                <div class="seg-text">${seg.text.substring(0, 60)}...</div>
+                ${!isThink ? '<div class="seg-badge">Start</div>' : ''} 
             </div>
         `);
     });
     
-    // ซ่อน Badge "Story Start?" ทั้งหมด แล้วโชว์แค่ตัวแรกที่เป็น Story
+    // โชว์ Badge แค่ตัวแรกที่เป็น Story
     $('.seg-badge').hide();
     $('.segment-block.type-story').first().find('.seg-badge').show();
 
@@ -288,7 +279,7 @@ function loadSettings() {
     $('#html-healer-open-split').on('click', openSplitEditor);
 }
 
-// --- CSS UPDATED ---
+// --- CSS UPDATED (Fix Mobile Overflow) ---
 const styles = `
 <style>
 :root {
@@ -306,10 +297,11 @@ const styles = `
     z-index: 99999; background: rgba(0,0,0,0.85);
     display: flex; align-items: center; justify-content: center;
     backdrop-filter: blur(4px);
+    padding: 10px; /* เพิ่ม padding กันติดขอบจอเกินไป */
 }
 
 .html-healer-box {
-    width: 95%; max-width: 900px; height: 90vh;
+    width: 100%; max-width: 900px; height: 90vh; /* ใช้ 100% width ในจอเล็ก */
     background: var(--lavender-darker);
     border: 1px solid var(--lavender-border);
     border-radius: 12px;
@@ -320,106 +312,97 @@ const styles = `
 
 /* HEADER */
 .healer-header {
-    background: var(--lavender-dark); padding: 10px 15px;
+    background: var(--lavender-dark); padding: 5px 10px;
     display: flex; justify-content: space-between; align-items: center;
-    border-bottom: 1px solid var(--lavender-border); height: 60px; flex-shrink: 0;
+    border-bottom: 1px solid var(--lavender-border); height: 55px; flex-shrink: 0;
 }
-.header-brand { display: flex; gap: 10px; align-items: center; }
-.header-icon { font-size: 1.2em; color: var(--lavender-secondary); }
-.header-text .title { font-weight: bold; color: var(--lavender-text); }
-.header-text .subtitle { font-size: 0.75em; color: #aaa; display: block; }
-.header-controls { display: flex; gap: 10px; align-items: center; }
+.header-brand { display: flex; gap: 8px; align-items: center; overflow: hidden; }
+.header-icon { font-size: 1.1em; color: var(--lavender-secondary); }
+.header-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.header-text .title { font-weight: bold; color: var(--lavender-text); font-size: 0.9em; }
+.header-text .subtitle { font-size: 0.7em; color: #aaa; display: block; }
+.header-controls { display: flex; gap: 8px; align-items: center; margin-left: auto; }
 .close-btn { cursor: pointer; padding: 5px; color: var(--lavender-text); font-size: 1.2em; }
 
-/* RESET BUTTON */
+/* RESET & AUTHOR */
 .reset-btn {
     background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
     color: #ddd; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 0.8em;
     display: flex; align-items: center; gap: 5px;
 }
-.reset-btn:hover { background: rgba(255,255,255,0.2); color: #fff; }
-
-/* AUTHOR PILL */
 .author-pill {
-    display: flex; align-items: center; gap: 8px;
+    display: flex; align-items: center; gap: 5px;
     background: rgba(255, 255, 255, 0.05);
-    padding: 4px 10px; border-radius: 20px;
+    padding: 2px; border-radius: 20px;
     border: 1px solid var(--lavender-border);
     flex-shrink: 0; 
 }
 .author-pill img {
     width: 24px; height: 24px; border-radius: 50%; object-fit: cover;
-    border: 1px solid var(--lavender-secondary);
 }
-.author-pill span { font-size: 0.8em; color: var(--lavender-text); font-weight: bold; }
 
 /* SEGMENT PICKER */
 .segment-picker-area {
-    padding: 8px; background: rgba(0,0,0,0.2);
+    padding: 5px; background: rgba(0,0,0,0.2);
     border-bottom: 1px solid var(--lavender-border);
-    height: 160px; display: flex; flex-direction: column; gap: 5px;
+    height: 140px; display: flex; flex-direction: column; gap: 5px;
 }
-.segment-scroller { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.segment-scroller { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
 .picker-instruction { font-size: 0.75em; color: #888; text-align: center; }
 
 .segment-block {
-    display: flex; align-items: center; gap: 10px; padding: 8px;
+    display: flex; align-items: center; gap: 8px; padding: 6px 10px;
     border-radius: 4px; cursor: pointer; border: 1px solid transparent;
-    font-size: 0.85em; background: rgba(255,255,255,0.03);
+    font-size: 0.8em; background: rgba(255,255,255,0.03);
     position: relative;
 }
 .segment-block.type-think { border-color: var(--lavender-secondary); background: rgba(166, 177, 225, 0.1); opacity: 0.7; }
 .segment-block.type-story { border-color: rgba(152, 195, 121, 0.4); background: rgba(152, 195, 121, 0.1); font-weight: bold;}
-
 .seg-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ddd; }
-.seg-badge {
-    background: #98c379; color: #222; font-size: 0.7em; padding: 2px 6px; border-radius: 4px; font-weight: bold;
-}
+.seg-badge { background: #98c379; color: #222; font-size: 0.7em; padding: 1px 5px; border-radius: 4px; font-weight: bold; }
 
 /* EDITOR BODY */
 .healer-body { flex: 1; display: flex; overflow: hidden; }
-.view-section { flex: 1; display: flex; flex-direction: column; padding: 10px; gap: 10px; }
+.view-section { flex: 1; display: flex; flex-direction: column; padding: 5px; gap: 5px; }
 .editor-group { flex: 1; display: flex; flex-direction: column; border: 1px solid var(--lavender-border); border-radius: 6px; }
 .group-toolbar {
-    padding: 5px 10px; background: rgba(0,0,0,0.2);
+    padding: 5px; background: rgba(0,0,0,0.2);
     display: flex; justify-content: space-between; align-items: center;
 }
 .label { font-size: 0.8em; font-weight: bold; color: var(--lavender-secondary); }
-.toolbar-actions { display: flex; gap: 8px; align-items: center; }
-.word-count { font-size: 0.7em; color: #666; }
-.action-btn { background: none; border: 1px solid #444; color: #ccc; border-radius: 4px; cursor: pointer; font-size: 0.75em; padding: 2px 6px; }
-textarea { flex: 1; width: 100%; border: none; background: transparent; color: #eee; padding: 10px; resize: none; outline: none; font-family: monospace; }
+.toolbar-actions { display: flex; gap: 5px; align-items: center; }
+.word-count { font-size: 0.65em; color: #666; }
+.action-btn { background: none; border: 1px solid #444; color: #ccc; border-radius: 4px; cursor: pointer; font-size: 0.7em; padding: 2px 5px; }
+textarea { flex: 1; width: 100%; border: none; background: transparent; color: #eee; padding: 8px; resize: none; outline: none; font-family: monospace; font-size: 13px; }
 
-/* FOOTER */
+/* FOOTER (FIXED OVERFLOW) */
 .healer-footer {
-    padding: 10px 15px; background: var(--lavender-dark);
+    padding: 8px 10px; background: var(--lavender-dark);
     border-top: 1px solid var(--lavender-border);
     display: flex; justify-content: space-between; align-items: center;
-    flex-wrap: wrap; 
-    gap: 10px;
-    padding-bottom: max(10px, env(safe-area-inset-bottom));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
 }
-.footer-status { font-size: 0.8em; color: #888; }
+.footer-status { font-size: 0.8em; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .save-button {
     background: var(--lavender-secondary); color: #222; border: none;
-    padding: 8px 20px; border-radius: 20px; font-weight: bold; cursor: pointer;
-    white-space: nowrap; 
-    flex-shrink: 0;
+    padding: 8px 15px; border-radius: 20px; font-weight: bold; cursor: pointer;
+    white-space: nowrap; /* ห้ามตัดบรรทัดในปุ่ม */
+    flex-shrink: 0; /* ห้ามหดปุ่ม */
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
 }
 
 /* MOBILE RESPONSIVE TWEAKS */
 @media screen and (max-width: 600px) {
     .html-healer-box { width: 100%; height: 100%; border-radius: 0; border: none; }
     .header-text .subtitle { display: none; }
+    .reset-text { display: none; } /* ซ่อนคำว่า Reset เหลือแต่ไอคอน */
     
-    .author-pill span.author-name { display: none; } 
-    .author-pill { padding: 2px; border: none; background: transparent; }
+    .segment-picker-area { height: 120px; }
     
-    .segment-picker-area { height: 140px; }
-    .view-section { padding: 5px; gap: 5px; }
-    
-    .healer-footer { justify-content: flex-end; } 
+    /* แก้ Footer ตกจอ: ซ่อน Status ทิ้งไปเลย ให้ปุ่ม Save เต็มที่ */
+    .healer-footer { justify-content: center; } 
     .footer-status { display: none; } 
+    .save-button { width: 100%; text-align: center; } /* ปุ่มเต็มจอ */
 }
 </style>
 `;
