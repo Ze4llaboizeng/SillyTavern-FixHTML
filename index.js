@@ -47,7 +47,6 @@ function openSplitEditor() {
     const originalText = chat[lastIndex].mes;
     const parts = splitContent(originalText);
 
-    // HTML Structure: Header -> Content (Scrollable) -> Footer
     const modalHtml = `
     <div id="html-healer-modal" class="html-healer-overlay">
         <div class="html-healer-box">
@@ -61,7 +60,7 @@ function openSplitEditor() {
                     <div class="column-edit">
                         <div class="editor-group">
                             <div class="label-row">
-                                <span><i class="fa-solid fa-brain"></i> Thinking Process</span>
+                                <span><i class="fa-solid fa-brain"></i> Thinking</span>
                                 <div class="st-btn small" id="btn-clean-cot">Clean Tags</div>
                             </div>
                             <textarea id="editor-cot" placeholder="Logic inside <think>...">${parts.cot}</textarea>
@@ -69,9 +68,9 @@ function openSplitEditor() {
 
                         <div class="editor-group">
                             <div class="label-row">
-                                <span><i class="fa-solid fa-comment-dots"></i> Main Content</span>
+                                <span><i class="fa-solid fa-comment-dots"></i> Content</span>
                                 <div class="action-buttons">
-                                    <div class="st-btn small" id="btn-find-tag">🔍 Find Tag</div>
+                                    <div class="st-btn small" id="btn-find-tag">🔍 Find</div>
                                     <div class="st-btn small" id="btn-heal-html">Fix HTML</div>
                                 </div>
                             </div>
@@ -81,7 +80,7 @@ function openSplitEditor() {
 
                     <div class="column-preview">
                         <div class="label-row">
-                            <span><i class="fa-solid fa-eye"></i> Live Preview</span>
+                            <span><i class="fa-solid fa-eye"></i> Preview</span>
                         </div>
                         <div id="healer-preview-box" class="preview-content"></div>
                     </div>
@@ -90,15 +89,16 @@ function openSplitEditor() {
 
             <div class="healer-footer">
                 <div id="healer-status" class="status-text"></div>
-                <button id="btn-save-split" class="st-btn primary">💾 Apply Changes</button>
+                <button id="btn-save-split" class="st-btn primary">💾 Save</button>
             </div>
         </div>
     </div>
     `;
 
-    $('body').append(modalHtml);
+    // Append directly to BODY to avoid parent clipping
+    $(document.body).append(modalHtml);
     
-    // --- 3. Interaction Logic ---
+    // --- 3. Logic ---
     const updatePreview = () => {
         const cot = $('#editor-cot').val().trim();
         const main = $('#editor-main').val();
@@ -148,7 +148,7 @@ function openSplitEditor() {
         const main = $('#editor-main').val();
 
         if (/<think>/i.test(main)) {
-            if (!confirm("⚠️ <think> tag detected in Main Content. Save anyway?")) return;
+            if (!confirm("⚠️ <think> found in Content. Save anyway?")) return;
         }
         
         let finalMes = "";
@@ -159,7 +159,7 @@ function openSplitEditor() {
             chat[targetMessageId].mes = finalMes;
             await context.saveChat();
             await context.reloadCurrentChat();
-            toastr.success("Message Saved!");
+            toastr.success("Saved!");
         }
         $('#html-healer-modal').remove();
     });
@@ -175,7 +175,7 @@ function loadSettings() {
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
             <div class="inline-drawer-content">
-                <div class="styled_description_block">Editor tool for PC & Mobile.</div>
+                <div class="styled_description_block">Full-screen editor tool.</div>
                 <div id="html-healer-open-split" class="menu_button">
                     <i class="fa-solid fa-file-medical"></i> Open Surgeon Tool
                 </div>
@@ -186,131 +186,141 @@ function loadSettings() {
     $('#html-healer-open-split').on('click', openSplitEditor);
 }
 
-// --- 4. SillyTavern-Like Responsive CSS ---
+// --- 4. CSS: The "Nuclear" Fix ---
 const styles = `
 <style>
-/* Reset basics */
+/* Reset Box Sizing */
 .html-healer-box * { box-sizing: border-box; }
 
-/* Overlay: PC = Center, Mobile = Fixed Fill */
+/* 1. OVERLAY: High Z-Index & Full Coverage */
 .html-healer-overlay {
-    position: fixed; inset: 0; z-index: 20000;
-    background: rgba(0, 0, 0, 0.85);
+    position: fixed !important; 
+    top: 0 !important; left: 0 !important; 
+    width: 100vw !important; height: 100vh !important;
+    z-index: 99999 !important; /* Overpower everything */
+    background: rgba(0, 0, 0, 0.8);
     display: flex; align-items: center; justify-content: center;
-    backdrop-filter: blur(2px);
+    backdrop-filter: blur(5px);
 }
 
-/* Modal Box: Flex Column Layout */
+/* 2. MODAL BOX (PC Default) */
 .html-healer-box {
     display: flex; flex-direction: column;
     background: var(--smart-background-color, #1a1a1a);
     border: 1px solid var(--smart-border-color, #444);
-    box-shadow: 0 0 25px rgba(0,0,0,0.5);
-    
-    /* PC Defaults */
-    width: 90%; max-width: 1100px;
-    height: 85vh; max-height: 900px;
-    border-radius: 10px;
+    box-shadow: 0 0 50px rgba(0,0,0,0.9);
+    width: 90%; max-width: 1200px;
+    height: 85vh;
+    border-radius: 12px;
 }
 
-/* Header & Footer: Rigid (Don't Shrink) */
+/* 3. LAYOUT STRUCTURE */
 .healer-header {
-    flex: 0 0 auto; /* Fixed height */
+    flex: 0 0 auto;
     display: flex; justify-content: space-between; align-items: center;
-    padding: 10px 15px;
+    padding: 12px 15px;
     border-bottom: 1px solid var(--smart-border-color, #444);
-    background: rgba(0,0,0,0.1);
+    background: rgba(0,0,0,0.2);
 }
-.healer-header h3 { margin: 0; font-size: 1.1em; color: var(--smart-text-color, #ccc); }
-.close-btn { cursor: pointer; font-size: 1.2em; color: #ff6666; padding: 0 5px; }
+.healer-header h3 { margin: 0; font-size: 1.1em; color: var(--smart-text-color, #eee); }
+.close-btn { cursor: pointer; font-size: 1.4em; color: #ff5555; padding: 0 10px; }
 
-.healer-footer {
-    flex: 0 0 auto; /* Fixed height */
-    display: flex; align-items: center; justify-content: flex-end;
-    padding: 10px 15px;
-    border-top: 1px solid var(--smart-border-color, #444);
-    background: rgba(0,0,0,0.1); gap: 10px;
-}
-.status-text { margin-right: auto; font-size: 0.85em; color: #ffab40; opacity: 0.8; }
-
-/* Main Scroll Area: Takes all remaining space */
 .healer-body-scroll {
-    flex: 1 1 auto; /* Grow and Shrink */
-    overflow-y: auto; /* Scroll ONLY inside here */
-    padding: 15px;
+    flex: 1; overflow-y: auto; padding: 15px;
+}
+.healer-grid { display: flex; gap: 15px; height: 100%; }
+
+/* Columns */
+.column-edit { flex: 1; display: flex; flex-direction: column; gap: 15px; }
+.column-preview { 
+    flex: 1; display: flex; flex-direction: column; 
+    border-left: 1px solid #444; padding-left: 15px; 
 }
 
-/* Grid System */
-.healer-grid {
-    display: flex; gap: 15px; height: 100%;
+/* Editor Styling */
+.editor-group { display: flex; flex-direction: column; flex: 1; }
+.label-row { 
+    display: flex; justify-content: space-between; align-items: center; 
+    margin-bottom: 5px; font-weight: bold; font-size: 0.9em; 
+    color: var(--smart-text-color); 
 }
-.column-edit { flex: 1; display: flex; flex-direction: column; gap: 15px; min-width: 0; }
-.column-preview { flex: 1; display: flex; flex-direction: column; border-left: 1px solid #444; padding-left: 15px; min-width: 0; }
-
-/* Editors */
-.editor-group { display: flex; flex-direction: column; flex: 1; min-height: 150px; }
-.label-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; font-weight: bold; font-size: 0.9em; color: var(--smart-text-color); }
 .action-buttons { display: flex; gap: 5px; }
 
-/* ST Style Buttons */
 .st-btn {
     background: var(--smart-theme-color, #444);
     color: var(--smart-theme-text, #fff);
-    border: 1px solid transparent;
-    border-radius: 5px; cursor: pointer;
-    text-align: center; font-weight: 600;
-    transition: filter 0.2s;
+    border: 1px solid transparent; border-radius: 5px; cursor: pointer;
+    text-align: center; font-weight: 600; padding: 5px 10px;
 }
-.st-btn:hover { filter: brightness(1.2); }
-.st-btn.small { padding: 3px 8px; font-size: 0.75em; }
-.st-btn.primary { padding: 8px 20px; font-size: 0.95em; }
+.st-btn.small { padding: 3px 8px; font-size: 0.8em; }
+.st-btn.primary { padding: 10px 20px; font-size: 1em; }
 
 textarea {
     width: 100%; flex: 1; resize: none;
-    background: rgba(0,0,0,0.2); color: var(--smart-text-color, #ccc);
+    background: rgba(0,0,0,0.3); color: var(--smart-text-color, #ccc);
     border: 1px solid var(--smart-border-color, #555);
-    border-radius: 5px; padding: 10px; font-family: monospace;
+    border-radius: 6px; padding: 10px; font-family: monospace; font-size: 14px;
 }
 
-/* Preview Area */
 .preview-content {
     flex: 1; overflow-y: auto;
-    background: rgba(0,0,0,0.1); border: 1px solid #444;
-    border-radius: 5px; padding: 10px;
-    word-wrap: break-word; font-size: 0.9em; line-height: 1.5;
+    background: rgba(0,0,0,0.2); border: 1px solid #444;
+    border-radius: 6px; padding: 10px;
+    word-wrap: break-word; line-height: 1.5; font-size: 14px;
 }
 .preview-content think {
-    display: block; background: rgba(127, 127, 127, 0.1);
-    border-left: 3px solid #888; padding: 8px; margin: 8px 0;
-    font-style: italic; opacity: 0.8;
+    display: block; background: rgba(127, 127, 127, 0.15);
+    border-left: 4px solid #888; padding: 10px; margin: 10px 0;
+    font-style: italic; opacity: 0.9;
 }
 
-/* --- MOBILE RESPONSIVE (The Fix) --- */
+.healer-footer {
+    flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: flex-end;
+    padding: 10px 15px;
+    border-top: 1px solid var(--smart-border-color, #444);
+    background: rgba(0,0,0,0.2);
+}
+.status-text { margin-right: auto; font-size: 0.9em; color: #ffab40; }
+
+/* --- 4. MOBILE / TABLET NUCLEAR OVERRIDE --- */
 @media screen and (max-width: 768px) {
+    /* ถมดำทึบ 100% บังทุกอย่างมิด */
     .html-healer-overlay {
-        align-items: flex-end; /* Or flex-start, doesn't matter much as we fill 100% */
+        background: var(--smart-background-color, #101010) !important;
+        padding: 0 !important;
+        align-items: flex-start !important; /* เริ่มจากบนสุด */
     }
+
+    /* ขยายกล่องให้เต็มจอ */
     .html-healer-box {
-        width: 100%; height: 100%; 
-        max-width: none; max-height: none;
-        border-radius: 0; border: none;
+        width: 100% !important;
+        height: 100% !important;
+        max-width: none !important;
+        border: none !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
     }
-    
+
+    /* จัด Layout แนวตั้ง */
     .healer-grid {
-        flex-direction: column; /* Stack vertically */
-        height: auto; /* Let content dictate height */
+        flex-direction: column;
+        gap: 20px;
     }
-    
+
+    /* ปรับส่วน Preview ให้มีความสูงคงที่ */
     .column-preview {
-        border-left: none; border-top: 1px solid #444;
-        padding-left: 0; padding-top: 15px;
-        height: 300px; /* Fixed height for preview on mobile */
-        flex: none; /* Don't grow */
+        border-left: none;
+        border-top: 1px solid #555;
+        padding-left: 0;
+        padding-top: 15px;
+        flex: none; /* ห้ามยืด */
+        height: 35vh; /* สูง 35% ของจอ */
     }
-    
-    .editor-group {
-        min-height: 200px; /* Give textareas enough space */
-    }
+
+    /* ปุ่มและ Textarea ใหญ่ขึ้นกดง่าย */
+    .st-btn { padding: 10px; }
+    textarea { font-size: 16px; /* ป้องกัน iOS ซูม */ }
 }
 </style>
 `;
@@ -318,5 +328,5 @@ $('head').append(styles);
 
 jQuery(async () => {
     loadSettings();
-    console.log(`[${extensionName}] Ready (SillyTavern Responsive UI).`);
+    console.log(`[${extensionName}] Ready (Nuclear Mobile Mode).`);
 });
