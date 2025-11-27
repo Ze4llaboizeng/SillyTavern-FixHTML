@@ -1,13 +1,11 @@
 const extensionName = "html-healer";
 
-// --- 1. Logic การแยกส่วนแบบอัจฉริยะ (Smart Splitter) ---
+// --- 1. Logic (เหมือนเดิม) ---
 function splitContent(rawText) {
-    // ล้างรหัส HTML encode
     let cleanText = rawText
         .replace(/&lt;think&gt;/gi, "<think>")
         .replace(/&lt;\/think&gt;/gi, "</think>");
 
-    // 1. กรณีสมบูรณ์: เจอคู่ <think>...</think>
     const match = cleanText.match(/<think>([\s\S]*?)<\/think>/i);
     if (match) {
         return {
@@ -17,22 +15,19 @@ function splitContent(rawText) {
         };
     }
 
-    // คำค้นหาจุดจบความคิด (Stop Phrases)
     const stopPhrases = [
-        "Close COT", "CLOSE COT", "close cot","Close of COT", "Close of CoT",
+        "Close COT", "CLOSE COT", "close cot",
         "End of thought", "Analysis complete", 
         "Thinking process end", "Reasoning finished"
     ];
     const stopRegex = new RegExp(`(${stopPhrases.join("|")})`, "i");
 
-    // 2. กรณีมีตัวเปิด <think> แต่ไม่มีตัวปิด (Broken Tag)
     const openIndex = cleanText.search(/<think>/i);
     if (openIndex !== -1) {
         const afterOpen = cleanText.substring(openIndex + 7);
         const stopMatch = afterOpen.match(stopRegex);
         
         if (stopMatch) {
-            // เจอคำปิดท้าย! ตัดจบตรงนั้นเลย
             const cutPoint = stopMatch.index + stopMatch[0].length;
             return {
                 type: "phrase_split",
@@ -40,28 +35,24 @@ function splitContent(rawText) {
                 main: afterOpen.substring(cutPoint).trim()
             };
         } else {
-            // ไม่เจอคำปิด งั้นเหมาหมดว่าเป็น CoT ไปก่อน (แล้วให้คนแก้)
             return {
                 type: "broken_tag",
                 cot: afterOpen.trim(),
-                main: "" // เนื้อเรื่องหาย หรืออาจจะอยู่ก่อนหน้า (แต่ปกติ CoT มาก่อน)
+                main: ""
             };
         }
     }
 
-    // 3. กรณีไม่มีแท็กเลย แต่เจอคำปิดท้าย (No Tags + Stop Phrase) *จุดที่ user ขอมา*
     const phraseMatch = cleanText.match(stopRegex);
     if (phraseMatch) {
-        // ตัดแบ่งตรงคำปิดท้าย
         const cutPoint = phraseMatch.index + phraseMatch[0].length;
         return {
-            type: "phrase_split", // แจ้งว่าแยกด้วยคำพูด
+            type: "phrase_split",
             cot: cleanText.substring(0, cutPoint).trim(),
             main: cleanText.substring(cutPoint).trim()
         };
     }
 
-    // 4. ไม่เจออะไรเลย (เนื้อเรื่องล้วน หรือ CoT ล้วนที่ไม่มีจุดสังเกต)
     return { type: "none", cot: "", main: cleanText };
 }
 
@@ -76,8 +67,16 @@ function healHtmlContent(htmlContent) {
     return doc.body.innerHTML;
 }
 
-// --- 2. สร้างหน้าต่าง UI (Friendly Version) ---
+// --- 2. UI Builder ---
 let targetMessageId = null;
+
+// ⭐ CONFIG: ตั้งค่ารูปและชื่อผู้สร้างตรงนี้ ⭐
+const authorConfig = {
+    name: "Zealllll", // ชื่อผู้สร้าง
+    // ใส่ URL รูปภาพของคุณตรงนี้ (เช่น URL จาก Discord หรือ Imgur)
+    // หรือถ้าเป็นไฟล์ในเครื่อง SillyTavern ให้ใส่ path เช่น 'img/user_avatar.png'
+    avatarUrl: "https://files.catbox.moe/u8u1u8.jpg" // ตัวอย่างรูป (เปลี่ยนได้)
+};
 
 function openSplitEditor() {
     const context = SillyTavern.getContext();
@@ -87,13 +86,10 @@ function openSplitEditor() {
     const lastIndex = chat.length - 1;
     targetMessageId = lastIndex;
     const originalText = chat[lastIndex].mes;
-    
-    // เรียกใช้ Smart Splitter
     const parts = splitContent(originalText);
 
-    // แจ้งเตือนถ้ามีการแยกให้อัตโนมัติ
     if (parts.type === "phrase_split") {
-        toastr.info("ระบบตรวจพบคำปิดท้าย CoT จึงแยกกล่องให้อัตโนมัติครับ");
+        toastr.info("ระบบแยกกล่องให้อัตโนมัติครับ");
     }
 
     const modalHtml = `
@@ -101,30 +97,37 @@ function openSplitEditor() {
         <div class="html-healer-box">
             
             <div class="healer-header">
-                <div class="header-title">
-                    <i class="fa-solid fa-wand-magic-sparkles"></i> Magic Editor
+                <div class="header-left">
+                    <div class="header-title">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Magic Editor
+                    </div>
+                    <div class="author-badge desktop-only">
+                        <img src="${authorConfig.avatarUrl}" class="author-img" onerror="this.style.display='none'">
+                        <span>by ${authorConfig.name}</span>
+                    </div>
                 </div>
+
                 <div class="mobile-tabs">
                     <button class="tab-btn active" onclick="switchTab('edit')"><i class="fa-solid fa-pen"></i> แก้ไข</button>
                     <button class="tab-btn" onclick="switchTab('preview')"><i class="fa-solid fa-eye"></i> ตัวอย่าง</button>
                 </div>
+                
                 <div class="close-btn" onclick="$('#html-healer-modal').remove()">✖</div>
             </div>
             
             <div class="healer-body">
-                
                 <div id="view-editor" class="view-section active">
                     <div class="input-container think-theme">
                         <div class="input-label">
-                            <span>🧠 ความคิดในใจ (Thinking)</span>
-                            <span class="tip">ระบบแยกให้แล้ว ตรวจทานได้เลย</span>
+                            <span>🧠 ความคิด (Thinking)</span>
+                            <span class="tip">ระบบแยกให้แล้ว</span>
                         </div>
                         <textarea id="editor-cot" placeholder="ยังไม่มีความคิด...">${parts.cot}</textarea>
                     </div>
 
                     <div class="input-container main-theme">
                         <div class="input-label">
-                            <span>💬 เนื้อเรื่อง / บทพูด</span>
+                            <span>💬 เนื้อเรื่อง (Story)</span>
                             <div class="tools">
                                 <button class="tool-btn" id="btn-heal-html"><i class="fa-solid fa-wrench"></i> ซ่อม HTML</button>
                             </div>
@@ -138,12 +141,16 @@ function openSplitEditor() {
                         <div id="healer-preview-box"></div>
                     </div>
                 </div>
-
             </div>
 
             <div class="healer-footer">
+                <div class="author-badge mobile-only">
+                    <img src="${authorConfig.avatarUrl}" class="author-img" onerror="this.style.display='none'">
+                    <span>by ${authorConfig.name}</span>
+                </div>
+
                 <div class="status-bar" id="healer-status">
-                    ${parts.type === 'phrase_split' ? '⚡ แยกโดยอัตโนมัติจากคำค้น' : 'พร้อมใช้งาน'}
+                    ${parts.type === 'phrase_split' ? '⚡ Auto-Split Active' : ''}
                 </div>
                 <button id="btn-save-split" class="save-button">
                     <i class="fa-solid fa-floppy-disk"></i> บันทึก
@@ -196,7 +203,7 @@ function openSplitEditor() {
         let val = $('#editor-main').val();
         let fixed = healHtmlContent(val);
         $('#editor-main').val(fixed);
-        toastr.success("โครงสร้าง HTML ถูกซ่อมแล้ว");
+        toastr.success("HTML Repaired!");
         updatePreview();
     });
 
@@ -204,9 +211,8 @@ function openSplitEditor() {
         const cot = $('#editor-cot').val().trim();
         const main = $('#editor-main').val();
 
-        // Safety check
         if (/<think>/i.test(main)) {
-            if (!confirm("⚠️ ยังมีคำว่า <think> หลงเหลือในกล่องเนื้อเรื่อง (กล่องล่าง)\nคุณต้องการบันทึกเลยหรือไม่?")) return;
+            if (!confirm("⚠️ ยังมีคำว่า <think> ในกล่องเนื้อเรื่อง ยืนยันบันทึก?")) return;
         }
         
         let finalMes = "";
@@ -217,7 +223,7 @@ function openSplitEditor() {
             chat[targetMessageId].mes = finalMes;
             await context.saveChat();
             await context.reloadCurrentChat();
-            toastr.success("บันทึกเรียบร้อย!");
+            toastr.success("Saved!");
         }
         $('#html-healer-modal').remove();
     });
@@ -233,7 +239,7 @@ function loadSettings() {
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
             <div class="inline-drawer-content">
-                <div class="styled_description_block">Magic Editor with Smart Splitter.</div>
+                <div class="styled_description_block">Editor with Author Credit.</div>
                 <div id="html-healer-open-split" class="menu_button">
                     <i class="fa-solid fa-wand-magic-sparkles"></i> Open Magic Editor
                 </div>
@@ -244,7 +250,7 @@ function loadSettings() {
     $('#html-healer-open-split').on('click', openSplitEditor);
 }
 
-// --- CSS (Friendly & Responsive) ---
+// --- CSS ---
 const styles = `
 <style>
 /* CORE */
@@ -265,13 +271,27 @@ const styles = `
     overflow: hidden;
 }
 
-/* HEADER */
+/* HEADER & AUTHOR BADGE */
 .healer-header {
     background: #252525; padding: 10px 15px;
     display: flex; align-items: center; justify-content: space-between;
     border-bottom: 1px solid #444; height: 60px; flex-shrink: 0;
 }
+.header-left { display: flex; align-items: center; gap: 15px; }
 .header-title { font-size: 1.2em; font-weight: bold; color: #fff; display: flex; align-items: center; gap: 10px; }
+
+/* Author Style */
+.author-badge {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 4px 10px; border-radius: 20px;
+    font-size: 0.8em; color: #aaa; border: 1px solid rgba(255,255,255,0.1);
+}
+.author-img {
+    width: 20px; height: 20px; border-radius: 50%; object-fit: cover;
+    border: 1px solid #666;
+}
+
 .close-btn { font-size: 1.5em; cursor: pointer; color: #ff6b6b; padding: 0 10px; }
 
 .mobile-tabs { display: none; gap: 8px; background: #333; padding: 4px; border-radius: 20px; }
@@ -290,7 +310,7 @@ const styles = `
 
 .input-container {
     display: flex; flex-direction: column; flex: 1;
-    border-radius: 8px; padding: 2px; transition: all 0.2s;
+    border-radius: 8px; padding: 2px;
 }
 .input-container.think-theme { border: 2px solid #6a5acd; background: rgba(106, 90, 205, 0.05); }
 .input-container.main-theme { border: 2px solid #444; }
@@ -313,7 +333,6 @@ textarea {
     font-family: monospace; font-size: 14px; outline: none; line-height: 1.5;
 }
 
-/* PREVIEW */
 .preview-container { 
     height: 100%; overflow-y: auto; background: rgba(0,0,0,0.2); 
     border-radius: 8px; padding: 20px; border: 1px solid #444; 
@@ -335,30 +354,35 @@ textarea {
     display: flex; align-items: center; justify-content: space-between;
     padding: 0 20px; flex-shrink: 0;
 }
-.status-bar { font-size: 0.9em; color: #ffab40; font-weight: 500;}
+.status-bar { font-size: 0.9em; color: #ffab40; font-weight: 500; margin-left: auto; margin-right: 15px;}
 .save-button {
     background: var(--smart-theme-color, #4caf50); color: white;
     border: none; padding: 10px 30px; border-radius: 20px;
     font-weight: bold; font-size: 1em; cursor: pointer;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3); transition: transform 0.1s;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
 .save-button:hover { filter: brightness(1.1); transform: translateY(-2px); }
 
-/* MOBILE RESPONSIVE */
+/* RESPONSIVE VISIBILITY FOR BADGE */
+.desktop-only { display: flex; }
+.mobile-only { display: none; }
+
 @media screen and (max-width: 768px) {
     .html-healer-box { width: 100%; height: 100%; border-radius: 0; border: none; }
     .mobile-tabs { display: flex; }
-    .header-title { display: none; }
+    .header-title { display: none; } /* Hide title on mobile to fit tabs */
+    .desktop-only { display: none; } /* Hide header badge on mobile */
+    .mobile-only { display: flex; margin-right: auto; } /* Show footer badge on mobile */
+    
     .view-section { display: none; padding: 10px; }
     .view-section.active { display: flex; }
     
-    /* Make inputs taller on mobile */
     .input-container { min-height: 40%; }
-    textarea { font-size: 16px; /* Stop iOS Zoom */ }
+    textarea { font-size: 16px; }
     .save-button { padding: 8px 20px; font-size: 0.95em; }
+    .status-bar { display: none; } /* Hide status on mobile if too crowded */
 }
 
-/* PC LAYOUT */
 @media screen and (min-width: 769px) {
     .healer-body { flex-direction: row; }
     .view-section { display: flex !important; width: 50%; }
@@ -371,5 +395,5 @@ $('head').append(styles);
 
 jQuery(async () => {
     loadSettings();
-    console.log(`[${extensionName}] Ready (Smart Splitter Version).`);
+    console.log(`[${extensionName}] Ready (Author Badge Version).`);
 });
