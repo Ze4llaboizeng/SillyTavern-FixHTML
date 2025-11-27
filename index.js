@@ -255,7 +255,6 @@ const styles = `
 .html-healer-box * { box-sizing: border-box; }
 .html-healer-overlay {
     position: fixed !important; top: 0; left: 0; width: 100vw; 
-    /* 🔴 แก้ไข: ใช้ dvh เพื่อให้เต็มจอจริงในมือถือ (ไม่โดนแถบ URL บัง) */
     height: 100vh; height: 100dvh; 
     z-index: 99999 !important; background: rgba(0,0,0,0.85);
     display: flex; align-items: center; justify-content: center;
