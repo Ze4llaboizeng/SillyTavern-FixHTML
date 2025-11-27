@@ -1,18 +1,15 @@
-// CONTEXT: SillyTavern Extension - HTML Healer (UI Version)
-// Adds a "Repair" button to every message to fix broken HTML tags.
+// CONTEXT: SillyTavern Extension - HTML Healer (Menu Version)
+// Adds a "Fix" button to the Extension Settings Panel (The Menu).
 
 const extensionName = "html-healer";
 
-/**
- * The Core Logic: HTML Sanitizer and Closer
- * Uses browser DOMParser to auto-close tags.
- */
+// 1. Core Logic: The Healer
 function healHtml(dirtyHtml) {
     if (!dirtyHtml) return "";
     const parser = new DOMParser();
     const doc = parser.parseFromString(dirtyHtml, 'text/html');
     
-    // Safety: Remove script tags to prevent issues during healing
+    // Safety: Remove script tags
     const scripts = doc.getElementsByTagName('script');
     for (let i = scripts.length - 1; i >= 0; i--) {
         scripts[i].parentNode.removeChild(scripts[i]);
@@ -21,91 +18,78 @@ function healHtml(dirtyHtml) {
     return doc.body.innerHTML;
 }
 
-/**
- * The click handler for the repair button
- * @param {number} index - The index of the message in the chat array
- */
-async function onRepairClick(index) {
-    // 1. Get the current chat
+// 2. The Button Action
+async function fixLastMessage() {
+    // Get context
     const context = SillyTavern.getContext();
     const chat = context.chat;
 
-    if (!chat[index]) {
-        console.error(`[${extensionName}] Message index ${index} not found.`);
+    if (!chat || chat.length === 0) {
+        toastr.warning("No messages to fix.");
         return;
     }
 
-    // 2. Heal the content
-    const originalMes = chat[index].mes;
+    // Target the LAST message in the chat
+    const lastMsgIndex = chat.length - 1;
+    const originalMes = chat[lastMsgIndex].mes;
+    
+    // Heal it
     const healedMes = healHtml(originalMes);
 
-    // 3. Check if changes are needed
+    // Check if changes are needed
     if (originalMes === healedMes) {
-        toastr.info("HTML looks healthy. No repair needed.");
+        toastr.info("Last message is already healthy.", "HTML Healer");
         return;
     }
 
-    // 4. Update the chat data
-    chat[index].mes = healedMes;
+    // Apply changes
+    chat[lastMsgIndex].mes = healedMes;
 
-    // 5. Save and Refresh
-    // We must save and reload to ensure the CSS/HTML bleeding stops affects the rest of the page
+    // Save and Refresh
     await context.saveChat();
     await context.reloadCurrentChat();
     
-    toastr.success("HTML Repaired!", "Tags auto-closed");
+    toastr.success("Fixed the last message!", "HTML Healer");
 }
 
-/**
- * Inject the button into the message toolbar
- */
-function addRepairButton(messageId, messageDiv) {
-    // Locate the button container (class .mes_buttons)
-    const buttonContainer = $(messageDiv).find('.mes_buttons');
-    
-    // Avoid duplicates if the event fires multiple times
-    if (buttonContainer.find('.html-healer-btn').length > 0) return;
-
-    // Create the button
-    // We use 'fa-band-aid' as the icon
-    const repairBtn = $(`
-        <div class="mes_button html-healer-btn" title="Repair Broken HTML">
-            <i class="fa-solid fa-band-aid"></i>
+// 3. Create the Menu UI (Looks like EllipsisCleaner)
+// This generates the HTML that appears in the Extensions menu
+function loadSettings() {
+    const settingsHtml = `
+    <div class="html-healer-settings">
+        <div class="inline-drawer">
+            <div class="inline-drawer-toggle inline-drawer-header">
+                <b>HTML Healer Controls</b>
+                <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+            </div>
+            
+            <div class="inline-drawer-content">
+                <div class="styled_description_block">
+                    Click the button below if the last message has broken colors or unclosed tags.
+                </div>
+                <br>
+                <div id="html-healer-btn" class="menu_button">
+                    <i class="fa-solid fa-band-aid"></i> Fix Last Message
+                </div>
+                <hr>
+                <small>Status: Ready to heal.</small>
+            </div>
         </div>
-    `);
+    </div>
+    `;
 
-    // Add Click Event
-    repairBtn.on('click', () => {
-        onRepairClick(messageId);
+    // Inject into the extension settings area
+    $('#extensions_settings').append(settingsHtml);
+
+    // Add Click Event Listener to our new button
+    $('#html-healer-btn').on('click', () => {
+        fixLastMessage();
     });
-
-    // Append to the toolbar (usually appended at the end or beginning)
-    buttonContainer.append(repairBtn);
 }
 
-// Hook into SillyTavern's event system
+// 4. Initialization
 jQuery(async () => {
-    // Listen for when a message is rendered in the DOM
-    const eventSource = SillyTavern.getContext().eventSource;
-    
-    eventSource.on(eventSource.MESSAGE_RENDERED, (id) => {
-        // 'id' is the index of the message in the chat array
-        // We find the DOM element associated with this ID
-        const messageDiv = $(`#chat .mes[messageid="${id}"]`);
-        
-        if (messageDiv.length) {
-            addRepairButton(id, messageDiv);
-        }
-    });
-
-    // Also run once on startup for existing messages in case of a reload
-    // This loops through currently rendered messages
-    $('#chat .mes').each(function() {
-        const id = $(this).attr('messageid');
-        if (id !== undefined) {
-            addRepairButton(Number(id), this);
-        }
-    });
-
-    console.log(`[${extensionName}] UI Loaded. Ready to repair.`);
+    // Wait for the extensions menu to be ready, then load our UI
+    loadSettings();
+    console.log(`[${extensionName}] Menu UI Loaded.`);
 });
