@@ -1,30 +1,26 @@
 const extensionName = "html-healer";
 
-// --- 1. Logic (Smart Segment Healer) ---
+// --- 1. Logic (Stack-Based Matching - เหมือน VS Code) ---
 
 function splitContent(rawText) {
     let cleanText = rawText
         .replace(/&lt;think&gt;/gi, "<think>")
         .replace(/&lt;\/think&gt;/gi, "</think>");
 
-    // 1. ดึง CoT ที่สมบูรณ์ทั้งหมด (รองรับหลายช่วง)
+    // Logic แยก CoT (ยังคงเดิมเพราะดีอยู่แล้ว)
     let cots = [];
     let mainText = cleanText;
     const thinkRegex = /<think>([\s\S]*?)<\/think>/gi;
     let match;
     
-    // วนลูปหาทุก Tag ที่ปิดสมบูรณ์
     while ((match = thinkRegex.exec(cleanText)) !== null) {
         cots.push(match[1].trim());
     }
 
-    // ลบ CoT ที่เจอออกเพื่อเตรียมตรวจ Tag ค้าง
     if (cots.length > 0) {
         mainText = mainText.replace(thinkRegex, "").trim();
     }
 
-    // 2. ตรวจหา Tag ที่เปิดค้างไว้ (Broken Tag) ในส่วนที่เหลือ
-    // เช่นพิมพ์ <think> แล้วตัดจบเลย
     const stopPhrases = [
         "Close COT", "CLOSE COT", "close cot", "Close of CoT",
         "End of thought", "Analysis complete"
@@ -37,22 +33,19 @@ function splitContent(rawText) {
         const stopMatch = afterOpen.match(stopRegex);
         
         if (stopMatch) {
-            // เจอคำสั่งปิด แต่ไม่มี tag ปิด
             const cutPoint = stopMatch.index + stopMatch[0].length;
             cots.push(afterOpen.substring(0, cutPoint).trim());
-            mainText = mainText.substring(0, openIndex) + afterOpen.substring(cutPoint); // ตัด CoT ออกแล้วเชื่อมข้อความ
+            mainText = mainText.substring(0, openIndex) + afterOpen.substring(cutPoint);
         } else {
-            // ไม่เจอคำสั่งปิดเลย (ค้างเติ่ง)
             cots.push(afterOpen.trim());
-            mainText = mainText.substring(0, openIndex).trim(); // เนื้อเรื่องคือส่วนก่อนหน้า
+            mainText = mainText.substring(0, openIndex).trim();
         }
     }
 
-    // Return ผลลัพธ์
     if (cots.length > 0) {
         return {
-            type: "multi_match", // แจ้งว่าเป็นแบบเจอหลายจุด
-            cot: cots.join("\n\n---\n\n"), // รวมความคิดด้วยเส้นคั่น
+            type: "multi_match",
+            cot: cots.join("\n\n---\n\n"),
             main: mainText.trim()
         };
     }
@@ -60,37 +53,67 @@ function splitContent(rawText) {
     return { type: "none", cot: "", main: cleanText };
 }
 
+// ⭐ Core Logic ใหม่: Stack-Based Healer
+function stackBasedFix(htmlSegment) {
+    // 1. รายชื่อ Tag ที่ไม่ต้องมีตัวปิด (Void Tags)
+    const voidTags = new Set([
+        "area", "base", "br", "col", "embed", "hr", "img", "input", 
+        "link", "meta", "param", "source", "track", "wbr", "command", "keygen", "menuitem"
+    ]);
+
+    // 2. Regex จับ Tag ทั้งหมด (<tag>, </tag>)
+    const tagRegex = /<\/?([a-zA-Z0-9]+)[^>]*>/g;
+    const stack = [];
+    let match;
+
+    // 3. วนลูปสแกน Tag เพื่อจำลอง Stack (เหมือน VS Code ไล่เช็ควงเล็บ)
+    while ((match = tagRegex.exec(htmlSegment)) !== null) {
+        const fullTag = match[0];
+        const tagName = match[1].toLowerCase();
+
+        if (voidTags.has(tagName)) continue; // ข้าม Tag ที่ไม่ต้องปิด
+
+        if (fullTag.startsWith("</")) {
+            // เจอ Tag ปิด: เช็คว่าตรงกับตัวล่าสุดใน Stack มั้ย
+            // หาตำแหน่ง Tag เปิดล่าสุดที่ตรงกัน
+            const lastIdx = stack.lastIndexOf(tagName);
+            
+            if (lastIdx !== -1) {
+                // ถ้าเจอคู่: ตัด Stack ตั้งแต่ตัวนั้นออกไป (ถือว่าปิดครบแล้วรวมถึง Tag ลูกที่อยู่ข้างในด้วย)
+                // เช่น Stack มี [div, p, b] แล้วเจอ </div> -> ระบบจะถือว่า p กับ b ถูกปิดโดยปริยาย
+                stack.splice(lastIdx, stack.length - lastIdx);
+            }
+        } else {
+            // เจอ Tag เปิด: ใส่ลงใน Stack
+            stack.push(tagName);
+        }
+    }
+
+    // 4. สร้าง Tag ปิดสำหรับสิ่งที่ยังค้างใน Stack (ย้อนหลัง)
+    // Stack: [div, p] -> Output: </p></div>
+    const closingTags = stack.reverse().map(t => `</${t}>`).join("");
+    
+    return htmlSegment + closingTags;
+}
+
 function healHtmlContent(htmlContent) {
     if (!htmlContent) return "";
 
-    // Pre-fix: แก้ Tag ที่พิมพ์ผิดรูปแบบบ่อยๆ ก่อน
+    // Pre-clean: แก้คำผิดเล็กน้อยก่อนเข้า Process
     let processed = htmlContent
-        .replace(/<\s*\/\s*([a-zA-Z0-9]+)>/g, "</$1>") // แก้ </ div> เป็น </div>
-        .replace(/<([a-zA-Z0-9]+)([^>]*?)\s*\/?>/g, (match) => match); // Normalize เบื้องต้น
+        .replace(/<\s*\/\s*([a-zA-Z0-9]+)>/g, "</$1>")
+        .replace(/<([a-zA-Z0-9]+)([^>]*?)\s*\/?>/g, (match, tag, attr) => `<${tag}${attr}>`); // Normalize
 
-    // ⭐ Smart Segment Logic: แยกซ่อมทีละย่อหน้า
-    // เพื่อป้องกัน Tag บรรทัดบน กินรวบข้อความบรรทัดล่าง
-    const blocks = processed.split(/\n{2,}/); // แยกด้วย Double Newline
-    const parser = new DOMParser();
+    // ใช้ Segment Splitter เพื่อความแม่นยำรายย่อหน้า
+    const blocks = processed.split(/\n{2,}/);
     
     const healedBlocks = blocks.map(block => {
-        // ถ้าไม่มีเครื่องหมาย < เลย แสดงว่าเป็น text ล้วน ไม่ต้องซ่อม (ประหยัด resource)
         if (!block.includes('<')) return block;
-
-        // แปลง HTML เฉพาะส่วนนี้
-        const doc = parser.parseFromString(block, 'text/html');
-        
-        // ลบ Script ผี
-        const scripts = doc.getElementsByTagName('script');
-        for (let i = scripts.length - 1; i >= 0; i--) {
-            scripts[i].parentNode.removeChild(scripts[i]);
-        }
-        
-        // ส่งคืน HTML ที่ Browser ซ่อมปิด Tag ให้แล้ว (เฉพาะในย่อหน้านี้)
-        return doc.body.innerHTML;
+        // เรียกใช้ Stack Fixer แทน DOMParser
+        return stackBasedFix(block);
     });
 
-    return healedBlocks.join('\n\n'); // ต่อกลับด้วยการเว้นบรรทัด
+    return healedBlocks.join('\n\n');
 }
 
 function countWords(str) {
@@ -98,7 +121,7 @@ function countWords(str) {
     return str.trim().split(/\s+/).length;
 }
 
-// --- 2. UI Builder ---
+// --- 2. UI Builder (Lavender Theme) ---
 let targetMessageId = null;
 
 const authorConfig = {
@@ -117,7 +140,7 @@ function openSplitEditor() {
     const parts = splitContent(originalText);
 
     if (parts.type === "multi_match") {
-        toastr.info(`Detected ${parts.cot.split('---').length} thinking segments.`);
+        toastr.info(`Found ${parts.cot.split('---').length} thought layers.`);
     }
 
     const modalHtml = `
@@ -126,10 +149,10 @@ function openSplitEditor() {
             
             <div class="healer-header">
                 <div class="header-brand">
-                    <div class="header-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
+                    <div class="header-icon"><i class="fa-solid fa-code-commit"></i></div>
                     <div class="header-text">
-                        <span class="title">Lavender Editor</span>
-                        <span class="subtitle">Segment-Aware Healer</span>
+                        <span class="title">Stack Healer</span>
+                        <span class="subtitle">VS Code Style Matching</span>
                     </div>
                 </div>
 
@@ -173,7 +196,7 @@ function openSplitEditor() {
                             <span class="label"><i class="fa-solid fa-comments"></i> Story Content</span>
                             <div class="toolbar-actions">
                                 <span class="word-count" id="count-main">0 words</span>
-                                <button class="action-btn" id="btn-heal-html" title="Fix HTML"><i class="fa-solid fa-wrench"></i> Smart Fix</button>
+                                <button class="action-btn" id="btn-heal-html" title="Smart Fix HTML"><i class="fa-solid fa-wand-magic-sparkles"></i> Auto-Close Tags</button>
                                 <button class="action-btn" onclick="copyText('editor-main')" title="Copy"><i class="fa-regular fa-copy"></i></button>
                             </div>
                         </div>
@@ -191,7 +214,7 @@ function openSplitEditor() {
 
             <div class="healer-footer">
                 <div class="footer-status">
-                     ${parts.type !== 'none' ? '<span class="tag-badge"><i class="fa-solid fa-layer-group"></i> Multi-Segment</span>' : ''}
+                     <span class="tag-badge"><i class="fa-solid fa-layer-group"></i> Stack Logic Active</span>
                 </div>
                 <button id="btn-save-split" class="save-button">
                     <span class="btn-content"><i class="fa-solid fa-floppy-disk"></i> Save Changes</span>
@@ -203,7 +226,6 @@ function openSplitEditor() {
 
     $(document.body).append(modalHtml);
     
-    // --- Logic & Events ---
     window.copyText = function(elementId) {
         const copyText = document.getElementById(elementId);
         copyText.select();
@@ -247,12 +269,11 @@ function openSplitEditor() {
     $('#editor-cot, #editor-main').on('input', updatePreview);
     updatePreview();
 
-    // ปุ่มซ่อม HTML แบบใหม่
     $('#btn-heal-html').on('click', () => {
         let val = $('#editor-main').val();
         let fixed = healHtmlContent(val);
         $('#editor-main').val(fixed).trigger('input');
-        toastr.success("Smart Segment Fix Applied!");
+        toastr.success("Tags auto-closed via Stack Matcher!");
     });
 
     $('#btn-save-split').on('click', async () => {
@@ -289,7 +310,7 @@ function loadSettings() {
             <div class="inline-drawer-content">
                 <div class="styled_description_block">Editor by ${authorConfig.name}</div>
                 <div id="html-healer-open-split" class="menu_button">
-                    <i class="fa-solid fa-wand-magic-sparkles"></i> Open Lavender Editor
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> Open Stack Editor
                 </div>
             </div>
         </div>
@@ -298,7 +319,7 @@ function loadSettings() {
     $('#html-healer-open-split').on('click', openSplitEditor);
 }
 
-// --- CSS (Lavender Theme) ---
+// ใช้ CSS เดิม (Lavender) ได้เลย หรือจะใส่ซ้ำเพื่อความชัวร์ก็ได้
 const styles = `
 <style>
 :root {
@@ -465,5 +486,5 @@ $('head').append(styles);
 
 jQuery(async () => {
     loadSettings();
-    console.log(`[${extensionName}] Ready (Lavender + Segment Fix).`);
+    console.log(`[${extensionName}] Ready (Stack-Based Engine).`);
 });
