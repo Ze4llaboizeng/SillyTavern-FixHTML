@@ -6,12 +6,14 @@ const defaultDepth = 1;
  * Rules:
  * - Only 1 <think> and 1 </think> allowed.
  * - Detect "Close COT" only if it doesn't already have a tag.
+ * - Case-insensitive checks to prevent double tagging (e.g. </THINK> and </think>).
  */
 function fixChainOfThought(text) {
     if (!text) return "";
 
-    // Step A: Count how many <think> tags exist
-    const openCount = (text.match(/<think>/g) || []).length;
+    // Step A: Count how many <think> tags exist (Case Insensitive)
+    const openMatches = text.match(/<think>/gi) || [];
+    const openCount = openMatches.length;
     
     // If there are NO <think> tags, we don't need to do anything CoT related.
     if (openCount === 0) return text;
@@ -21,28 +23,29 @@ function fixChainOfThought(text) {
     // and remove the rest to prevent structure breakage.
     if (openCount > 1) {
         console.log(`[${extensionName}] Found multiple <think> tags. Cleaning extras.`);
-        // Find the first index
-        const firstIndex = text.indexOf("<think>");
+        
+        // Find the first index (Case Insensitive search)
+        const firstIndex = text.search(/<think>/i);
+        // Get the actual tag string found (e.g. <THINK> or <think>) to handle length correctly
+        const firstTag = text.match(/<think>/i)[0];
+        
         // Remove all subsequent <think> tags
-        // We slice the text into two parts: before first tag+length, and the rest (where we delete tags)
-        let before = text.slice(0, firstIndex + 7); // 7 is length of <think>
-        let after = text.slice(firstIndex + 7).replace(/<think>/g, ""); 
+        let before = text.slice(0, firstIndex + firstTag.length);
+        // Replace globally with case-insensitivity in the 'after' chunk
+        let after = text.slice(firstIndex + firstTag.length).replace(/<think>/gi, ""); 
         text = before + after;
     }
 
-    // Step C: Check if it is already closed
-    // We look for </think>. If strictly one exists, we assume it's safe 
-    // (unless you want to force move it, but usually existing tags are fine).
-    if (text.includes("</think>")) {
+    // Step C: Check if it is already closed (Case Insensitive)
+    if (/<\/think>/i.test(text)) {
         // Optional: Ensure there is only one closing tag too
-        const closeCount = (text.match(/<\/think>/g) || []).length;
-        if (closeCount > 1) {
-             // Keep the LAST closing tag, remove others? 
-             // Or Keep the FIRST? Usually the first one closes the thought.
-             // Let's rely on the first one being the valid closer.
-             const firstClose = text.indexOf("</think>");
-             let before = text.slice(0, firstClose + 8);
-             let after = text.slice(firstClose + 8).replace(/<\/think>/g, "");
+        const closeMatches = text.match(/<\/think>/gi) || [];
+        if (closeMatches.length > 1) {
+             const firstCloseIndex = text.search(/<\/think>/i);
+             const firstCloseTag = text.match(/<\/think>/i)[0];
+
+             let before = text.slice(0, firstCloseIndex + firstCloseTag.length);
+             let after = text.slice(firstCloseIndex + firstCloseTag.length).replace(/<\/think>/gi, "");
              text = before + after;
         }
         return text; 
@@ -59,9 +62,9 @@ function fixChainOfThought(text) {
 
     // Regex Explanation:
     // (${stopPhrases})  -> Match any of the words
-    // (?!<\/think>)     -> Negative Lookahead: ONLY match if NOT followed by </think>
-    // This prevents double tagging "Close COT</think></think>"
-    const regexPattern = new RegExp(`(${stopPhrases.join("|")})(?!<\/think>)`, "i");
+    // (?![\s\S]*<\/think>) -> Negative Lookahead: Only match if NOT followed by a closing tag later
+    // Added 'i' flag for case insensitivity
+    const regexPattern = new RegExp(`(${stopPhrases.join("|")})(?![\\s\\S]*<\\/think>)`, "i");
 
     if (regexPattern.test(text)) {
         console.log(`[${extensionName}] Found CoT stop phrase. Closing tag.`);
@@ -81,9 +84,25 @@ function healHtml(dirtyHtml) {
     if (!dirtyHtml) return "";
 
     // 1. First, fix the CoT Logic strictly
+    // This ensures we have exactly one <think> and one </think> (if applicable)
     let preProcessed = fixChainOfThought(dirtyHtml);
 
-    // 2. Now use DOMParser for the rest
+    // --- PROTECTION STEP ---
+    // We extract the <think> block entirely so DOMParser cannot touch it.
+    // This prevents the "add two </think>" issue where the parser might 
+    // duplicate the closing tag or malform the content.
+    const cotRegex = /<think>[\s\S]*?<\/think>/i;
+    const cotMatch = preProcessed.match(cotRegex);
+    let storedCot = "";
+    let placeholder = "";
+
+    if (cotMatch) {
+        storedCot = cotMatch[0];
+        // Replace the CoT block with a safe comment placeholder
+        preProcessed = preProcessed.replace(cotMatch[0], placeholder);
+    }
+
+    // 2. Now use DOMParser for the rest (fixing divs, spans, etc.)
     const parser = new DOMParser();
     const doc = parser.parseFromString(preProcessed, 'text/html');
     
@@ -93,10 +112,15 @@ function healHtml(dirtyHtml) {
         scripts[i].parentNode.removeChild(scripts[i]);
     }
 
-    // 3. Return the fully healed string
-    // DOMParser is smart enough to respect the </think> we added in Step 1
-    // and will close any <div> tags that are still open around it.
-    return doc.body.innerHTML;
+    let healedHtml = doc.body.innerHTML;
+
+    // --- RESTORATION STEP ---
+    // Put the <think> block back exactly as it was
+    if (storedCot) {
+        healedHtml = healedHtml.replace(placeholder, storedCot);
+    }
+
+    return healedHtml;
 }
 
 /**
@@ -174,5 +198,5 @@ function loadSettings() {
 
 jQuery(async () => {
     loadSettings();
-    console.log(`[${extensionName}] Ready (Strict Mode).`);
+    console.log(`[${extensionName}] Ready (Strict Mode + Protected CoT).`);
 });
