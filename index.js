@@ -75,28 +75,39 @@ function fixChainOfThought(text) {
 }
 
 /**
- * LOGIC 2: General HTML Healer
- * Fixes divs, spans, etc.
+ * LOGIC 2: General HTML Healer with Modes
+ * Modes: 'both' (default), 'html_only', 'cot_only'
  */
-function healHtml(dirtyHtml) {
+function healHtml(dirtyHtml, mode = 'both') {
     if (!dirtyHtml) return "";
 
-    // 1. First, fix the CoT Logic strictly
-    let preProcessed = fixChainOfThought(dirtyHtml);
+    let preProcessed = dirtyHtml;
+
+    // 1. Logic: Fix CoT First (If requested)
+    if (mode === 'both' || mode === 'cot_only') {
+         preProcessed = fixChainOfThought(dirtyHtml);
+         // If we only want to fix CoT, we return here immediately.
+         if (mode === 'cot_only') return preProcessed;
+    }
+
+    // 2. Logic: Fix HTML (If requested)
+    // We arrive here if mode is 'both' or 'html_only'
 
     // --- PROTECTION STEP ---
     // Extract <think>...<think> so DOMParser doesn't touch it
+    // Even if in 'html_only' mode, we protect the existing CoT block (if valid)
+    // to prevent DOMParser from mangling it.
     const cotRegex = /<think>[\s\S]*?<\/think>/i;
     const cotMatch = preProcessed.match(cotRegex);
     let storedCot = "";
-    let placeholder = "";
+    const placeholder = "";
 
     if (cotMatch) {
         storedCot = cotMatch[0];
         preProcessed = preProcessed.replace(cotMatch[0], placeholder);
     }
 
-    // 2. Now use DOMParser for the rest
+    // 3. Now use DOMParser for the rest
     const parser = new DOMParser();
     const doc = parser.parseFromString(preProcessed, 'text/html');
     
@@ -131,6 +142,9 @@ async function fixMessages() {
     let depth = parseInt($('#html-healer-depth').val());
     if (isNaN(depth) || depth < 1) depth = 1;
 
+    // Get the selected mode from UI
+    const mode = $('#html-healer-mode').val() || 'both';
+
     let fixCount = 0;
     
     for (let i = 0; i < depth; i++) {
@@ -138,7 +152,8 @@ async function fixMessages() {
         if (targetIndex < 0) break;
 
         const originalMes = chat[targetIndex].mes;
-        const healedMes = healHtml(originalMes);
+        // Pass the mode to the healer function
+        const healedMes = healHtml(originalMes, mode);
 
         if (originalMes !== healedMes) {
             chat[targetIndex].mes = healedMes;
@@ -147,11 +162,11 @@ async function fixMessages() {
     }
 
     if (fixCount === 0) {
-        toastr.info(`Checked last ${depth} messages. Logic & HTML are healthy.`);
+        toastr.info(`Checked last ${depth} messages. No changes needed (Mode: ${mode}).`);
     } else {
         await context.saveChat();
         await context.reloadCurrentChat();
-        toastr.success(`Repaired ${fixCount} message(s)!`, "HTML Healer");
+        toastr.success(`Repaired ${fixCount} message(s)! (Mode: ${mode})`, "HTML Healer");
     }
 }
 
@@ -169,16 +184,25 @@ function loadSettings() {
             
             <div class="inline-drawer-content">
                 <div class="styled_description_block">
-                    Ensures single &lt;think&gt; tags and closes generic HTML.
+                    Manage broken HTML tags and Chain of Thought blocks.
                 </div>
                 
                 <div class="healer-controls">
-                    <label for="html-healer-depth">Scan Depth:</label>
-                    <input id="html-healer-depth" type="number" class="text_pole" min="1" max="50" value="${defaultDepth}" />
+                    <label for="html-healer-depth">Depth:</label>
+                    <input id="html-healer-depth" type="number" class="text_pole" min="1" max="50" value="${defaultDepth}" title="How many recent messages to scan" />
+                </div>
+
+                <div class="healer-controls">
+                    <label for="html-healer-mode">Target:</label>
+                    <select id="html-healer-mode" class="text_pole" style="width: auto; min-width: 120px;">
+                        <option value="both">All (CoT Priority)</option>
+                        <option value="html_only">HTML Only</option>
+                        <option value="cot_only">CoT Only</option>
+                    </select>
                 </div>
 
                 <div id="html-healer-btn" class="menu_button">
-                    <i class="fa-solid fa-brain"></i> Fix Logic & HTML
+                    <i class="fa-solid fa-brain"></i> Execute Fix
                 </div>
             </div>
         </div>
@@ -191,5 +215,5 @@ function loadSettings() {
 
 jQuery(async () => {
     loadSettings();
-    console.log(`[${extensionName}] Ready (Formatted CoT).`);
+    console.log(`[${extensionName}] Ready (Multi-Mode).`);
 });
