@@ -1,10 +1,11 @@
 const extensionName = "html-healer";
 
-// --- 1. Logic (Block Segmentation & Split) ---
+// --- 1. Logic (Analysis & Fix) ---
 
 let initialSegments = []; 
 let currentSegments = []; 
 
+// แยกส่วนประกอบ (ใช้สำหรับหน้า Editor)
 function parseSegments(rawText) {
     if (!rawText) return [];
     let cleanText = rawText
@@ -19,6 +20,7 @@ function parseSegments(rawText) {
     return rawBlocks.map((block, index) => {
         let text = block.trim();
         
+        // เช็คคร่าวๆ ว่าเป็น Tag เปิดยาวๆ หรือไม่
         const startsWithComplexTag = /^<[^/](?!br|i|b|em|strong|span|p)[^>]*>?/i.test(text);
         const hasCloseThink = /<\/think>|Close COT|End of thought/i.test(text);
         
@@ -54,13 +56,11 @@ function applySplitPoint(startIndex) {
     });
 }
 
-// --- NEW LOGIC: Whitelist-Based Fix ---
-// ซ่อมเฉพาะแท็ก HTML มาตรฐาน (Standard Tags)
-// ปล่อยผ่านแท็กที่สร้างเอง (Custom Tags) เช่น <scrollborad.zeal>
+// ฟังก์ชันซ่อม HTML (Whitelist Mode)
 function whitelistFix(text) {
     if (!text) return "";
 
-    // รายชื่อแท็กมาตรฐานที่จะทำการตรวจสอบและซ่อม (Whitelist)
+    // รายชื่อแท็กมาตรฐาน HTML
     const standardTags = new Set([
         "a", "abbr", "address", "article", "aside", "audio", "b", "base", "bdi", "bdo", 
         "blockquote", "body", "br", "button", "canvas", "caption", "cite", "code", "col", 
@@ -76,7 +76,6 @@ function whitelistFix(text) {
         "wbr", "font", "center", "strike", "tt", "big" 
     ]);
 
-    // แท็กที่ไม่ต้องมีตัวปิด (Self-closing / Void tags)
     const voidTags = new Set([
         "area", "base", "br", "col", "embed", "hr", "img", "input", 
         "link", "meta", "param", "source", "track", "wbr"
@@ -86,27 +85,14 @@ function whitelistFix(text) {
     let stack = [];
     let match;
     
-    // เราจะสร้าง string ใหม่จากการตัดแปะ เพื่อไม่ให้ regex วนลูปไม่จบ
-    // แต่วิธีที่ง่ายกว่าคือการหาแท็กที่ขาด แล้วเติมต่อท้าย
-    
-    // 1. สแกนทั้งข้อความเพื่อดูโครงสร้าง
     while ((match = tagRegex.exec(text)) !== null) {
         const fullTag = match[0];
         const tagName = match[1].toLowerCase();
 
-        // [หัวใจสำคัญ] ถ้าไม่ใช่แท็กมาตรฐาน ให้ข้ามไปเลย (ถือเป็น Text ธรรมดา)
-        if (!standardTags.has(tagName)) {
-            continue; 
-        }
-
-        // ถ้าเป็น Void tag (เช่น <br>, <img>) ไม่ต้องทำอะไรกับ Stack
-        if (voidTags.has(tagName)) {
-            continue;
-        }
+        if (!standardTags.has(tagName)) continue; 
+        if (voidTags.has(tagName)) continue;
 
         if (fullTag.startsWith("</")) {
-            // เจอแท็กปิด: พยายามจับคู่กับ Stack
-            // ค้นหาจากบนลงล่าง
             let foundIndex = -1;
             for (let i = stack.length - 1; i >= 0; i--) {
                 if (stack[i] === tagName) {
@@ -114,23 +100,16 @@ function whitelistFix(text) {
                     break;
                 }
             }
-            
             if (foundIndex !== -1) {
-                // ถ้าเจอคู่ ให้ตัด Stack ตั้งแต่ตัวนั้นออกไป (ถือว่าปิดครบแล้ว)
                 stack.splice(foundIndex, stack.length - foundIndex);
             }
-            // ถ้าไม่เจอคู่ใน Stack แสดงว่าเป็นแท็กปิดส่วนเกิน (อาจจะปล่อยไว้หรือลบก็ได้ แต่ในที่นี้เราปล่อยไว้)
         } else {
-            // เจอแท็กเปิด: ใส่ Stack รอไว้
             stack.push(tagName);
         }
     }
 
-    // 2. เติมแท็กปิดที่ยังค้างอยู่ใน Stack
     if (stack.length > 0) {
-        // Reverse เพื่อปิดจากในสุดออกมานอกสุด
         const closingTags = stack.reverse().map(t => `</${t}>`).join("");
-        // เติมต่อท้ายข้อความเดิม
         return text + "\n" + closingTags;
     }
 
@@ -142,7 +121,38 @@ function countWords(str) {
     return str.trim().split(/\s+/).length;
 }
 
-// --- 2. UI Builder ---
+// --- 2. Logic: Smart Action ---
+
+async function performSmartQuickFix() {
+    const context = SillyTavern.getContext();
+    const chat = context.chat;
+    if (!chat || chat.length === 0) return toastr.warning("No messages to fix.");
+
+    const lastIndex = chat.length - 1;
+    const originalText = chat[lastIndex].mes;
+
+    // ตรวจหา <think> หรือ &lt;think
+    const hasThinking = /<think|&lt;think|&lt;\/think|<\/think>/i.test(originalText);
+
+    if (hasThinking) {
+        // กรณีเจอ Think -> บังคับเปิด Editor
+        toastr.info("Thinking process detected! Opening editor...");
+        openSplitEditor(); 
+    } else {
+        // กรณี HTML ธรรมดา -> ซ่อมเลย
+        const fixedText = whitelistFix(originalText);
+        if (fixedText !== originalText) {
+            chat[lastIndex].mes = fixedText;
+            await context.saveChat();
+            await context.reloadCurrentChat();
+            toastr.success("HTML Fixed automatically!");
+        } else {
+            toastr.success("HTML looks good already.");
+        }
+    }
+}
+
+// --- 3. UI Builder ---
 let targetMessageId = null;
 
 const authorConfig = {
@@ -247,15 +257,11 @@ function openSplitEditor() {
         toastr.info("Reset to initial detection.");
     });
 
-    // --- BUTTON CLICK HANDLER (UPDATED) ---
     $('#btn-heal-html').on('click', () => {
         let val = $('#editor-main').val();
-        
-        // ส่งข้อความไปทั้งก้อน (val) แต่ซ่อมเฉพาะ Standard Tags
         let fixed = whitelistFix(val);
-        
         $('#editor-main').val(fixed).trigger('input');
-        toastr.success("Fixed Standard HTML Tags!");
+        toastr.success("Standard Tags Fixed!");
     });
 
     $('#editor-cot, #editor-main').on('input', updateCounts);
@@ -316,6 +322,8 @@ window.copyText = (id) => {
 
 function loadSettings() {
     if ($('.html-healer-settings').length > 0) return;
+    
+    // สร้าง 2 ปุ่ม: Quick Fix และ Open Editor
     $('#extensions_settings').append(`
         <div class="html-healer-settings">
             <div class="inline-drawer">
@@ -325,14 +333,23 @@ function loadSettings() {
                 </div>
                 <div class="inline-drawer-content">
                     <div class="styled_description_block">Editor by ${authorConfig.name}</div>
-                    <div id="html-healer-open-split" class="menu_button">
-                        <i class="fa-solid fa-wand-magic-sparkles"></i> Open Editor
+                    
+                    <div style="display:flex; gap:5px; margin-top:5px;">
+                        <div id="html-healer-quick-fix" class="menu_button" style="flex:1; background-color: var(--smart-theme-color, #4caf50);">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> Quick Fix
+                        </div>
+                        <div id="html-healer-open-split" class="menu_button" style="flex:1;">
+                            <i class="fa-solid fa-layer-group"></i> Editor
+                        </div>
                     </div>
+                    <small style="opacity:0.6; display:block; margin-top:5px; text-align:center;">*Quick fix will open editor if &lt;think&gt; detected.</small>
                 </div>
             </div>
         </div>
     `);
+    
     $('#html-healer-open-split').on('click', openSplitEditor);
+    $('#html-healer-quick-fix').on('click', performSmartQuickFix);
 }
 
 // --- CSS UPDATED ---
@@ -376,32 +393,41 @@ const styles = `
 .header-icon { font-size: 1.1em; color: var(--lavender-secondary); }
 .header-text .title { font-weight: bold; color: var(--lavender-text); font-size: 0.9em; }
 
-/* CONTROLS (Right Side) */
+/* CONTROLS (Right Side) - FIX ALIGNMENT */
 .header-controls { 
     display: flex; gap: 8px; align-items: center; margin-left: auto; 
     flex-shrink: 0; 
 }
-.close-btn { cursor: pointer; padding: 5px; color: var(--lavender-text); font-size: 1.2em; }
+.close-btn { 
+    cursor: pointer; padding: 5px; color: var(--lavender-text); font-size: 1.2em;
+    display: flex; align-items: center; justify-content: center;
+    height: 32px; width: 32px; /* Fix click area size */
+}
 .reset-btn {
     background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
-    color: #ddd; border-radius: 4px; padding: 6px; cursor: pointer; font-size: 0.9em;
+    color: #ddd; border-radius: 4px; padding: 0 8px; cursor: pointer; font-size: 0.9em;
+    height: 32px; /* Fix height */
+    display: flex; align-items: center; justify-content: center;
 }
 
-/* AUTHOR PILL */
+/* AUTHOR PILL - FIXED */
 .author-pill {
-    display: flex; align-items: center; gap: 6px;
+    display: flex; align-items: center; gap: 8px;
     background: rgba(255, 255, 255, 0.05);
-    padding: 3px 8px; border-radius: 20px;
+    padding: 0 10px 0 4px; /* Padding adjustment */
+    border-radius: 16px;
     border: 1px solid var(--lavender-border);
-    max-width: 150px; 
+    height: 32px; /* Fixed height to match buttons */
+    white-space: nowrap;
 }
 .author-pill img {
     width: 24px; height: 24px; border-radius: 50%; object-fit: cover;
     flex-shrink: 0;
+    display: block; /* Remove inline-block spacing issues */
 }
 .author-pill .author-name {
     font-size: 0.8em; color: var(--lavender-text); font-weight: bold;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    line-height: 1; /* Reset line-height */
 }
 
 /* SEGMENT PICKER */
