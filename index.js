@@ -11,7 +11,6 @@ function parseSegments(rawText) {
         .replace(/&lt;think&gt;/gi, "<think>")
         .replace(/&lt;\/think&gt;/gi, "</think>");
 
-    // แยกด้วย \n และกรองบรรทัดว่างทิ้ง
     const rawBlocks = cleanText.split(/\n/).filter(line => line.trim() !== "");
     
     let isThinking = false;
@@ -55,99 +54,87 @@ function applySplitPoint(startIndex) {
     });
 }
 
-// --- NEW LOGIC: Indentation-Based Fix ---
-// ฟังก์ชันนี้จะดูการย่อหน้าเพื่อจับคู่แท็กเปิด-ปิด แทนการดูแค่บรรทัดเดียว
-function indentBasedFix(fullText) {
-    if (!fullText) return "";
-    const lines = fullText.split('\n');
+// --- NEW LOGIC: Whitelist-Based Fix ---
+// ซ่อมเฉพาะแท็ก HTML มาตรฐาน (Standard Tags)
+// ปล่อยผ่านแท็กที่สร้างเอง (Custom Tags) เช่น <scrollborad.zeal>
+function whitelistFix(text) {
+    if (!text) return "";
+
+    // รายชื่อแท็กมาตรฐานที่จะทำการตรวจสอบและซ่อม (Whitelist)
+    const standardTags = new Set([
+        "a", "abbr", "address", "article", "aside", "audio", "b", "base", "bdi", "bdo", 
+        "blockquote", "body", "br", "button", "canvas", "caption", "cite", "code", "col", 
+        "colgroup", "data", "datalist", "dd", "del", "details", "dfn", "dialog", "div", 
+        "dl", "dt", "em", "embed", "fieldset", "figcaption", "figure", "footer", "form", 
+        "h1", "h2", "h3", "h4", "h5", "h6", "head", "header", "hr", "html", "i", "iframe", 
+        "img", "input", "ins", "kbd", "label", "legend", "li", "link", "main", "map", 
+        "mark", "meta", "meter", "nav", "noscript", "object", "ol", "optgroup", "option", 
+        "output", "p", "param", "picture", "pre", "progress", "q", "rp", "rt", "ruby", "s", 
+        "samp", "script", "section", "select", "small", "source", "span", "strong", "style", 
+        "sub", "summary", "sup", "svg", "table", "tbody", "td", "template", "textarea", 
+        "tfoot", "th", "thead", "time", "title", "tr", "track", "u", "ul", "var", "video", 
+        "wbr", "font", "center", "strike", "tt", "big" 
+    ]);
+
+    // แท็กที่ไม่ต้องมีตัวปิด (Self-closing / Void tags)
     const voidTags = new Set([
         "area", "base", "br", "col", "embed", "hr", "img", "input", 
-        "link", "meta", "param", "source", "track", "wbr", "command", "keygen", "menuitem"
+        "link", "meta", "param", "source", "track", "wbr"
     ]);
+
     const tagRegex = /<\/?([a-zA-Z0-9\.\-\_:]+)[^>]*>/g;
+    let stack = [];
+    let match;
     
-    let stack = []; // เก็บ { tag: "div", indent: 0 }
-    let resultLines = [];
+    // เราจะสร้าง string ใหม่จากการตัดแปะ เพื่อไม่ให้ regex วนลูปไม่จบ
+    // แต่วิธีที่ง่ายกว่าคือการหาแท็กที่ขาด แล้วเติมต่อท้าย
     
-    for (let i = 0; i < lines.length; i++) {
-        let line = lines[i];
-        
-        // ถ้าเป็นบรรทัดว่าง ให้เก็บไว้รักษารูปแบบ แต่ข้ามการคำนวณ
-        if (!line.trim()) {
-            resultLines.push(line);
+    // 1. สแกนทั้งข้อความเพื่อดูโครงสร้าง
+    while ((match = tagRegex.exec(text)) !== null) {
+        const fullTag = match[0];
+        const tagName = match[1].toLowerCase();
+
+        // [หัวใจสำคัญ] ถ้าไม่ใช่แท็กมาตรฐาน ให้ข้ามไปเลย (ถือเป็น Text ธรรมดา)
+        if (!standardTags.has(tagName)) {
+            continue; 
+        }
+
+        // ถ้าเป็น Void tag (เช่น <br>, <img>) ไม่ต้องทำอะไรกับ Stack
+        if (voidTags.has(tagName)) {
             continue;
         }
 
-        // 1. หาค่า Indent ของบรรทัดปัจจุบัน
-        const currentIndent = line.search(/\S|$/); 
-
-        // 2. ตรวจสอบ Stack: ถ้า Indent ถอยกลับมา (น้อยกว่าหรือเท่ากับตัวก่อนหน้า)
-        // แสดงว่าจบบล็อกของแท็กนั้นแล้ว
-        let closingTags = "";
-        while (stack.length > 0) {
-            const last = stack[stack.length - 1];
-            if (currentIndent <= last.indent) {
-                closingTags += `</${last.tag}>`;
-                stack.pop();
-            } else {
-                break;
-            }
-        }
-
-        // แทรกแท็กปิด (ถ้ามี) ไปที่ท้ายของ "บรรทัดเนื้อหาก่อนหน้า"
-        if (closingTags) {
-            let prevIdx = resultLines.length - 1;
-            // ย้อนหาบรรทัดที่ไม่ว่างเพื่อแปะแท็กปิด
-            while(prevIdx >= 0 && !resultLines[prevIdx].trim()) {
-                prevIdx--;
-            }
-            
-            if (prevIdx >= 0) {
-                resultLines[prevIdx] += closingTags;
-            } else {
-                line = closingTags + line;
-            }
-        }
-
-        // 3. สแกนหาแท็กเปิด/ปิด ในบรรทัดปัจจุบัน เพื่ออัปเดต Stack
-        let match;
-        tagRegex.lastIndex = 0; 
-        
-        while ((match = tagRegex.exec(line)) !== null) {
-            const tagName = match[1].toLowerCase();
-            const isClosing = match[0].startsWith("</");
-            
-            if (voidTags.has(tagName)) continue;
-
-            if (isClosing) {
-                // ถ้าเจอแท็กปิด ให้ลบออกจาก Stack
-                for (let j = stack.length - 1; j >= 0; j--) {
-                    if (stack[j].tag === tagName) {
-                        stack.splice(j, stack.length - j);
-                        break;
-                    }
+        if (fullTag.startsWith("</")) {
+            // เจอแท็กปิด: พยายามจับคู่กับ Stack
+            // ค้นหาจากบนลงล่าง
+            let foundIndex = -1;
+            for (let i = stack.length - 1; i >= 0; i--) {
+                if (stack[i] === tagName) {
+                    foundIndex = i;
+                    break;
                 }
-            } else {
-                // ถ้าเจอแท็กเปิด ให้จำใส่ Stack พร้อมค่า Indent
-                stack.push({ tag: tagName, indent: currentIndent });
             }
-        }
-        
-        resultLines.push(line);
-    }
-    
-    // 4. ปิดแท็กที่ค้างอยู่ทั้งหมดเมื่อจบข้อความ
-    let finalClosing = stack.reverse().map(item => `</${item.tag}>`).join("");
-    if (finalClosing) {
-        // แปะไว้ท้ายสุดถ้ายังมีบรรทัดเหลือ
-        if (resultLines.length > 0) {
-            resultLines[resultLines.length - 1] += finalClosing;
+            
+            if (foundIndex !== -1) {
+                // ถ้าเจอคู่ ให้ตัด Stack ตั้งแต่ตัวนั้นออกไป (ถือว่าปิดครบแล้ว)
+                stack.splice(foundIndex, stack.length - foundIndex);
+            }
+            // ถ้าไม่เจอคู่ใน Stack แสดงว่าเป็นแท็กปิดส่วนเกิน (อาจจะปล่อยไว้หรือลบก็ได้ แต่ในที่นี้เราปล่อยไว้)
         } else {
-            resultLines.push(finalClosing);
+            // เจอแท็กเปิด: ใส่ Stack รอไว้
+            stack.push(tagName);
         }
     }
 
-    return resultLines.join('\n');
+    // 2. เติมแท็กปิดที่ยังค้างอยู่ใน Stack
+    if (stack.length > 0) {
+        // Reverse เพื่อปิดจากในสุดออกมานอกสุด
+        const closingTags = stack.reverse().map(t => `</${t}>`).join("");
+        // เติมต่อท้ายข้อความเดิม
+        return text + "\n" + closingTags;
+    }
+
+    return text;
 }
 
 function countWords(str) {
@@ -260,15 +247,15 @@ function openSplitEditor() {
         toastr.info("Reset to initial detection.");
     });
 
-    // --- BUTTON CLICK HANDLER UPDATED ---
+    // --- BUTTON CLICK HANDLER (UPDATED) ---
     $('#btn-heal-html').on('click', () => {
         let val = $('#editor-main').val();
         
-        // ใช้ logic ใหม่: ส่งข้อความไปทั้งก้อนเพื่อคำนวณ Indent
-        let fixed = indentBasedFix(val);
+        // ส่งข้อความไปทั้งก้อน (val) แต่ซ่อมเฉพาะ Standard Tags
+        let fixed = whitelistFix(val);
         
         $('#editor-main').val(fixed).trigger('input');
-        toastr.success("Tags Fixed (Smart Block Detection)!");
+        toastr.success("Fixed Standard HTML Tags!");
     });
 
     $('#editor-cot, #editor-main').on('input', updateCounts);
