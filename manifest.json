@@ -1,0 +1,8 @@
+{
+    "name": "HTML Healer",
+    "version": "1.0.0",
+    "author": "Zealllll",
+    "description": "Automatically fixes broken HTML tags and unclosed divs in messages.",
+    "js": "index.js",
+    "display_name": "HTML Healer"
+}
