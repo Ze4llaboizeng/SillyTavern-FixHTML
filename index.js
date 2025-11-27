@@ -284,6 +284,7 @@ const styles = `
     background: rgba(255, 255, 255, 0.1);
     padding: 4px 10px; border-radius: 20px;
     font-size: 0.8em; color: #aaa; border: 1px solid rgba(255,255,255,0.1);
+    white-space: nowrap; /* ห้ามชื่อขึ้นบรรทัดใหม่ */
 }
 .author-img {
     width: 20px; height: 20px; border-radius: 50%; object-fit: cover;
@@ -350,7 +351,7 @@ textarea {
 .healer-footer {
     height: 60px; background: #252525; border-top: 1px solid #444;
     display: flex; align-items: center; justify-content: space-between;
-    padding: 0 20px; flex-shrink: 0;
+    padding: 0 15px; flex-shrink: 0; gap: 10px;
 }
 .status-bar { font-size: 0.9em; color: #ffab40; font-weight: 500; margin-left: auto; margin-right: 15px;}
 .save-button {
@@ -358,27 +359,39 @@ textarea {
     border: none; padding: 10px 30px; border-radius: 20px;
     font-weight: bold; font-size: 1em; cursor: pointer;
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    white-space: nowrap;
 }
 .save-button:hover { filter: brightness(1.1); transform: translateY(-2px); }
 
-/* RESPONSIVE VISIBILITY FOR BADGE */
+/* VISIBILITY UTILS */
 .desktop-only { display: flex; }
 .mobile-only { display: none; }
 
+/* --- MOBILE TWEAKS (แก้ใหม่) --- */
 @media screen and (max-width: 768px) {
     .html-healer-box { width: 100%; height: 100%; border-radius: 0; border: none; }
-    .mobile-tabs { display: flex; }
-    .header-title { display: none; } /* Hide title on mobile to fit tabs */
-    .desktop-only { display: none; } /* Hide header badge on mobile */
-    .mobile-only { display: flex; margin-right: auto; } /* Show footer badge on mobile */
     
+    /* Header: ซ่อนฝั่งซ้ายทิ้งไปเลย เพื่อให้ Tabs ชิดซ้าย */
+    .header-left { display: none !important; } 
+    .header-title { display: none; }
+    .desktop-only { display: none; }
+    
+    /* Show Mobile Tabs */
+    .mobile-tabs { display: flex; }
+    
+    /* Body & Layout */
     .view-section { display: none; padding: 10px; }
     .view-section.active { display: flex; }
-    
     .input-container { min-height: 40%; }
-    textarea { font-size: 16px; }
-    .save-button { padding: 8px 20px; font-size: 0.95em; }
-    .status-bar { display: none; } /* Hide status on mobile if too crowded */
+    
+    /* Fonts & Inputs */
+    textarea { font-size: 16px; } /* 16px ป้องกัน iOS Zoom */
+    
+    /* Footer & Badge */
+    .mobile-only { display: flex; margin-right: auto; max-width: 55%; overflow: hidden; }
+    .author-badge { padding: 4px 8px; font-size: 0.75em; } /* ลดขนาดป้าย */
+    .save-button { padding: 8px 20px; font-size: 0.9em; } /* ลดขนาดปุ่ม Save */
+    .status-bar { display: none; }
 }
 
 @media screen and (min-width: 769px) {
