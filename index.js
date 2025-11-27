@@ -10,8 +10,7 @@ function parseSegments(rawText) {
         .replace(/&lt;think&gt;/gi, "<think>")
         .replace(/&lt;\/think&gt;/gi, "</think>");
 
-    // 1. ปรับ Logic: ตัดด้วย \n (Newline) ตัวเดียวก็แยกเลย
-    // ใช้ \n+ เพื่อกันกรณีเผลอเคาะเบิ้ลหลายที ให้ยุบรวมเป็นจุดตัดเดียว
+    // ✅ แก้ไข: แบ่งด้วย Newline เดียว (\n+) ไม่ต้องรอ Double Enter
     const rawBlocks = cleanText.split(/\n+/);
     
     let isThinking = false;
@@ -49,9 +48,9 @@ function parseSegments(rawText) {
 function applySplitPoint(startIndex) {
     currentSegments.forEach((seg) => {
         if (seg.id < startIndex) {
-            seg.type = 'think';
+            seg.type = 'think'; 
         } else {
-            seg.type = 'story';
+            seg.type = 'story'; 
         }
     });
 }
@@ -111,14 +110,15 @@ function openSplitEditor() {
                 <div class="header-brand">
                     <div class="header-icon"><i class="fa-solid fa-layer-group"></i></div>
                     <div class="header-text">
-                        <span class="title">Segment Selector</span>
-                        <span class="subtitle">Click <b>Story Start</b></span>
-                    </div>
+                        <span class="title">Selector</span> </div>
                 </div>
                 <div class="header-controls">
-                     <button class="reset-btn" id="btn-reset-split">
+                     <button class="reset-btn" id="btn-reset-split" title="Reset">
                         <i class="fa-solid fa-rotate-left"></i>
                      </button>
+                     <div class="author-pill" title="Created by ${authorConfig.name}">
+                        <img src="${authorConfig.avatarUrl}" onerror="this.style.display='none'">
+                    </div>
                     <div class="close-btn" onclick="$('#html-healer-modal').remove()">
                         <i class="fa-solid fa-xmark"></i>
                     </div>
@@ -128,7 +128,7 @@ function openSplitEditor() {
             <div class="segment-picker-area">
                 <div class="segment-scroller" id="segment-container"></div>
                 <div class="picker-instruction">
-                    <i class="fa-solid fa-arrow-down"></i> Select the first <b>Story</b> block
+                    <i class="fa-solid fa-arrow-pointer"></i> Select <b>Story Start</b> block
                 </div>
             </div>
             
@@ -142,7 +142,7 @@ function openSplitEditor() {
                                 <button class="action-btn" onclick="copyText('editor-cot')"><i class="fa-regular fa-copy"></i></button>
                             </div>
                         </div>
-                        <textarea id="editor-cot" placeholder="Thinking..."></textarea>
+                        <textarea id="editor-cot" placeholder="Thinking process..."></textarea>
                     </div>
 
                     <div class="editor-group main-group">
@@ -153,12 +153,15 @@ function openSplitEditor() {
                                 <button class="action-btn" id="btn-heal-html"><i class="fa-solid fa-wand-magic-sparkles"></i> Fix</button>
                             </div>
                         </div>
-                        <textarea id="editor-main" placeholder="Story..."></textarea>
+                        <textarea id="editor-main" placeholder="Story content..."></textarea>
                     </div>
                 </div>
             </div>
 
             <div class="healer-footer">
+                <div class="footer-status">
+                     <span class="tag-badge"><i class="fa-solid fa-check-double"></i> Split Mode</span>
+                </div>
                 <button id="btn-save-split" class="save-button">
                     <span class="btn-content"><i class="fa-solid fa-floppy-disk"></i> Save</span>
                 </button>
@@ -179,14 +182,14 @@ function openSplitEditor() {
     $('#btn-reset-split').on('click', () => {
         currentSegments = JSON.parse(JSON.stringify(initialSegments));
         renderSegments();
-        toastr.info("Reset!");
+        toastr.info("Reset to initial detection.");
     });
 
     $('#btn-heal-html').on('click', () => {
         let val = $('#editor-main').val();
-        let fixed = val.split(/\n{2,}/).map(b => b.includes('<') ? stackBasedFix(b) : b).join('\n\n');
+        let fixed = val.split(/\n+/).map(b => b.includes('<') ? stackBasedFix(b) : b).join('\n');
         $('#editor-main').val(fixed).trigger('input');
-        toastr.success("Fixed!");
+        toastr.success("Tags Fixed!");
     });
 
     $('#editor-cot, #editor-main').on('input', updateCounts);
@@ -266,7 +269,7 @@ function loadSettings() {
     $('#html-healer-open-split').on('click', openSplitEditor);
 }
 
-// --- CSS UPDATED (Mobile Optimized) ---
+// --- CSS UPDATED ---
 const styles = `
 <style>
 :root {
@@ -280,15 +283,15 @@ const styles = `
 
 .html-healer-box * { box-sizing: border-box; }
 .html-healer-overlay {
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
     z-index: 99999; background: rgba(0,0,0,0.85);
     display: flex; align-items: center; justify-content: center;
     backdrop-filter: blur(4px);
+    padding: 10px; 
 }
 
 .html-healer-box {
-    width: 95%; max-width: 900px; 
-    height: 85vh; /* Desktop Default */
+    width: 100%; max-width: 900px; height: 90vh;
     background: var(--lavender-darker);
     border: 1px solid var(--lavender-border);
     border-radius: 12px;
@@ -303,84 +306,106 @@ const styles = `
     display: flex; justify-content: space-between; align-items: center;
     border-bottom: 1px solid var(--lavender-border); height: 50px; flex-shrink: 0;
 }
-.header-brand { display: flex; gap: 8px; align-items: center; overflow: hidden; }
-.header-icon { font-size: 1.1em; color: var(--lavender-secondary); }
-.header-text .title { font-weight: bold; color: var(--lavender-text); font-size: 0.9em; }
-.header-text .subtitle { font-size: 0.7em; color: #aaa; display: block; }
-.header-controls { display: flex; gap: 10px; align-items: center; }
+.header-brand { 
+    display: flex; gap: 8px; align-items: center; 
+    flex: 0 1 auto; /* ให้หดได้ถ้าที่เต็ม */
+    overflow: hidden; 
+}
+.header-icon { font-size: 1.1em; color: var(--lavender-secondary); flex-shrink: 0; }
+.header-text .title { 
+    font-weight: bold; color: var(--lavender-text); font-size: 0.9em; 
+    white-space: nowrap; 
+}
+
+.header-controls { 
+    display: flex; gap: 8px; align-items: center; 
+    flex-shrink: 0; /* ห้ามหดส่วนปุ่มกด */
+}
 .close-btn { cursor: pointer; padding: 5px; color: var(--lavender-text); font-size: 1.2em; }
-.reset-btn { background: transparent; border: 1px solid #444; color: #ccc; border-radius: 4px; padding: 2px 6px; cursor: pointer; }
+
+.reset-btn {
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+    color: #ddd; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 0.9em;
+}
+.author-pill {
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 2px; border-radius: 50%; /* กลมดิก */
+    border: 1px solid var(--lavender-border);
+    width: 32px; height: 32px; /* ล็อกขนาด */
+    flex-shrink: 0;
+}
+.author-pill img {
+    width: 100%; height: 100%; border-radius: 50%; object-fit: cover;
+}
 
 /* SEGMENT PICKER */
 .segment-picker-area {
     padding: 5px; background: rgba(0,0,0,0.2);
     border-bottom: 1px solid var(--lavender-border);
-    height: 120px; display: flex; flex-direction: column; gap: 5px; flex-shrink: 0;
+    height: 140px; display: flex; flex-direction: column; gap: 5px;
 }
-.segment-scroller { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
-.picker-instruction { font-size: 0.7em; color: #888; text-align: center; }
+.segment-scroller { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+.picker-instruction { font-size: 0.75em; color: #888; text-align: center; }
 
 .segment-block {
-    display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+    display: flex; align-items: center; gap: 8px; padding: 6px 10px;
     border-radius: 4px; cursor: pointer; border: 1px solid transparent;
     font-size: 0.8em; background: rgba(255,255,255,0.03);
+    min-height: 35px;
 }
-.segment-block.type-think { border-color: var(--lavender-secondary); background: rgba(166, 177, 225, 0.1); opacity: 0.7; }
+.segment-block.type-think { border-color: var(--lavender-secondary); background: rgba(166, 177, 225, 0.1); opacity: 0.8; }
 .segment-block.type-story { border-color: rgba(152, 195, 121, 0.4); background: rgba(152, 195, 121, 0.1); font-weight: bold;}
 .seg-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ddd; }
-.seg-badge { background: #98c379; color: #222; font-size: 0.7em; padding: 1px 4px; border-radius: 3px; }
+.seg-badge { background: #98c379; color: #222; font-size: 0.7em; padding: 1px 5px; border-radius: 4px; font-weight: bold; }
 
 /* EDITOR BODY */
-.healer-body { flex: 1; display: flex; overflow: hidden; position: relative; }
-.view-section { flex: 1; display: flex; flex-direction: column; padding: 5px; gap: 5px; overflow-y: auto; }
-.editor-group { 
-    display: flex; flex-direction: column; border: 1px solid var(--lavender-border); border-radius: 6px; 
-    min-height: 100px; /* กันหดจนมองไม่เห็น */
-}
-.think-group { flex: 1; }
-.main-group { flex: 2; } /* ให้ Story ใหญ่กว่า */
-
+.healer-body { flex: 1; display: flex; overflow: hidden; }
+.view-section { flex: 1; display: flex; flex-direction: column; padding: 5px; gap: 5px; }
+.editor-group { flex: 1; display: flex; flex-direction: column; border: 1px solid var(--lavender-border); border-radius: 6px; }
 .group-toolbar {
-    padding: 4px 8px; background: rgba(0,0,0,0.2);
+    padding: 5px; background: rgba(0,0,0,0.2);
     display: flex; justify-content: space-between; align-items: center;
 }
-.label { font-size: 0.75em; font-weight: bold; color: var(--lavender-secondary); }
+.label { font-size: 0.8em; font-weight: bold; color: var(--lavender-secondary); }
 .toolbar-actions { display: flex; gap: 5px; align-items: center; }
 .word-count { font-size: 0.65em; color: #666; }
 .action-btn { background: none; border: 1px solid #444; color: #ccc; border-radius: 4px; cursor: pointer; font-size: 0.7em; padding: 2px 5px; }
-textarea { flex: 1; width: 100%; border: none; background: transparent; color: #eee; padding: 8px; resize: none; outline: none; font-family: monospace; font-size: 13px; line-height: 1.4; }
+textarea { flex: 1; width: 100%; border: none; background: transparent; color: #eee; padding: 8px; resize: none; outline: none; font-family: monospace; font-size: 13px; }
 
-/* FOOTER */
+/* FOOTER (FIXED) */
 .healer-footer {
-    padding: 8px; background: var(--lavender-dark);
+    padding: 8px 10px; background: var(--lavender-dark);
     border-top: 1px solid var(--lavender-border);
-    display: flex; justify-content: center; /* จัดปุ่มกลาง */
-    flex-shrink: 0;
+    display: flex; justify-content: flex-end; /* ชิดขวาเสมอ */
+    align-items: center;
     padding-bottom: max(8px, env(safe-area-inset-bottom));
+    min-height: 50px;
+}
+.footer-status { 
+    font-size: 0.8em; color: #888; margin-right: auto; /* ดันปุ่มไปขวา */
 }
 .save-button {
     background: var(--lavender-secondary); color: #222; border: none;
-    padding: 10px 0; width: 100%; max-width: 300px; /* ปุ่มใหญ่กดง่ายในมือถือ */
-    border-radius: 8px; font-weight: bold; cursor: pointer;
-    font-size: 1em;
+    padding: 8px 25px; border-radius: 20px; font-weight: bold; cursor: pointer;
+    white-space: nowrap; 
+    flex-shrink: 0;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
 }
 
-/* MOBILE SPECIFIC (จอเล็กกว่า 600px) */
+/* MOBILE SPECIFIC */
 @media screen and (max-width: 600px) {
-    .html-healer-box { 
-        width: 100%; 
-        height: 100dvh; /* เต็มจอแก้ปัญหา Address Bar */
-        max-height: 100dvh;
-        border-radius: 0; border: none; 
-    }
-    .header-text .subtitle { display: none; }
+    .html-healer-box { border-radius: 0; border: none; }
     
-    /* ให้ Textarea ยืดหดตามเนื้อหาได้ดีขึ้น */
-    .view-section { overflow-y: scroll; -webkit-overflow-scrolling: touch; }
+    /* Header */
+    .header-text .title { font-size: 0.8em; }
     
-    /* ลดขนาด Header เพื่อเพิ่มพื้นที่ */
-    .healer-header { height: 45px; }
-    .segment-picker-area { height: 100px; }
+    /* Segment Picker */
+    .segment-picker-area { height: 130px; }
+    
+    /* Footer Clean up */
+    .footer-status { display: none; } /* ซ่อน Text */
+    .save-button { width: 100%; text-align: center; font-size: 1em; padding: 10px; } /* ปุ่มเต็มจอ กดง่าย */
 }
 </style>
 `;
