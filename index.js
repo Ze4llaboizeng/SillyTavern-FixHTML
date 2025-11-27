@@ -1,13 +1,13 @@
 const extensionName = "html-healer";
 
-// --- 1. Logic (Stack-Based Matching - เหมือน VS Code) ---
+// --- 1. Logic (Stack-Based Matching - รองรับ Custom Tags) ---
 
 function splitContent(rawText) {
     let cleanText = rawText
         .replace(/&lt;think&gt;/gi, "<think>")
         .replace(/&lt;\/think&gt;/gi, "</think>");
 
-    // Logic แยก CoT (ยังคงเดิมเพราะดีอยู่แล้ว)
+    // Logic แยก CoT
     let cots = [];
     let mainText = cleanText;
     const thinkRegex = /<think>([\s\S]*?)<\/think>/gi;
@@ -53,44 +53,43 @@ function splitContent(rawText) {
     return { type: "none", cot: "", main: cleanText };
 }
 
-// ⭐ Core Logic ใหม่: Stack-Based Healer
+// ⭐ Core Logic: Stack-Based Healer (Updated Regex)
 function stackBasedFix(htmlSegment) {
-    // 1. รายชื่อ Tag ที่ไม่ต้องมีตัวปิด (Void Tags)
+    // 1. Tag ที่ไม่ต้องปิด (Void Tags)
     const voidTags = new Set([
         "area", "base", "br", "col", "embed", "hr", "img", "input", 
         "link", "meta", "param", "source", "track", "wbr", "command", "keygen", "menuitem"
     ]);
 
-    // 2. Regex จับ Tag ทั้งหมด (<tag>, </tag>)
-    const tagRegex = /<\/?([a-zA-Z0-9]+)[^>]*>/g;
+    // 2. Regex แก้ไขใหม่: รองรับจุด (.) ขีด (-) และโคลอน (:) ในชื่อ Tag
+    // เช่น <char.mood> หรือ <name-subname> จะถูกจับมาทั้งก้อน
+    const tagRegex = /<\/?([a-zA-Z0-9\.\-\_:]+)[^>]*>/g;
+    
     const stack = [];
     let match;
 
-    // 3. วนลูปสแกน Tag เพื่อจำลอง Stack (เหมือน VS Code ไล่เช็ควงเล็บ)
+    // 3. วนลูป Stack Matching
     while ((match = tagRegex.exec(htmlSegment)) !== null) {
         const fullTag = match[0];
-        const tagName = match[1].toLowerCase();
+        const tagName = match[1].toLowerCase(); // เช่น "char.mood"
 
-        if (voidTags.has(tagName)) continue; // ข้าม Tag ที่ไม่ต้องปิด
+        if (voidTags.has(tagName)) continue;
 
         if (fullTag.startsWith("</")) {
-            // เจอ Tag ปิด: เช็คว่าตรงกับตัวล่าสุดใน Stack มั้ย
-            // หาตำแหน่ง Tag เปิดล่าสุดที่ตรงกัน
+            // เจอ Tag ปิด
             const lastIdx = stack.lastIndexOf(tagName);
-            
             if (lastIdx !== -1) {
-                // ถ้าเจอคู่: ตัด Stack ตั้งแต่ตัวนั้นออกไป (ถือว่าปิดครบแล้วรวมถึง Tag ลูกที่อยู่ข้างในด้วย)
-                // เช่น Stack มี [div, p, b] แล้วเจอ </div> -> ระบบจะถือว่า p กับ b ถูกปิดโดยปริยาย
+                // ตัด Stack ตั้งแต่ตัวที่เจอออกไป (ถือว่าปิดคู่ของมันแล้ว)
                 stack.splice(lastIdx, stack.length - lastIdx);
             }
         } else {
-            // เจอ Tag เปิด: ใส่ลงใน Stack
+            // เจอ Tag เปิด -> Push เข้า Stack
             stack.push(tagName);
         }
     }
 
-    // 4. สร้าง Tag ปิดสำหรับสิ่งที่ยังค้างใน Stack (ย้อนหลัง)
-    // Stack: [div, p] -> Output: </p></div>
+    // 4. สร้าง Tag ปิดย้อนหลังตามลำดับ (LIFO)
+    // ถ้า Stack เหลือ ["div", "char.mood"] -> จะเติม </char.mood></div>
     const closingTags = stack.reverse().map(t => `</${t}>`).join("");
     
     return htmlSegment + closingTags;
@@ -99,17 +98,16 @@ function stackBasedFix(htmlSegment) {
 function healHtmlContent(htmlContent) {
     if (!htmlContent) return "";
 
-    // Pre-clean: แก้คำผิดเล็กน้อยก่อนเข้า Process
+    // Pre-clean: แก้พวกเว้นวรรคผิดๆ เช่น </ name.sub> เป็น </name.sub>
     let processed = htmlContent
-        .replace(/<\s*\/\s*([a-zA-Z0-9]+)>/g, "</$1>")
-        .replace(/<([a-zA-Z0-9]+)([^>]*?)\s*\/?>/g, (match, tag, attr) => `<${tag}${attr}>`); // Normalize
+        .replace(/<\s*\/\s*([a-zA-Z0-9\.\-\_:]+)>/g, "</$1>")
+        .replace(/<([a-zA-Z0-9\.\-\_:]+)([^>]*?)\s*\/?>/g, (match, tag, attr) => `<${tag}${attr}>`); 
 
-    // ใช้ Segment Splitter เพื่อความแม่นยำรายย่อหน้า
+    // แยกย่อหน้าแล้วซ่อมทีละส่วน
     const blocks = processed.split(/\n{2,}/);
     
     const healedBlocks = blocks.map(block => {
         if (!block.includes('<')) return block;
-        // เรียกใช้ Stack Fixer แทน DOMParser
         return stackBasedFix(block);
     });
 
@@ -152,7 +150,7 @@ function openSplitEditor() {
                     <div class="header-icon"><i class="fa-solid fa-code-commit"></i></div>
                     <div class="header-text">
                         <span class="title">Stack Healer</span>
-                        <span class="subtitle">VS Code Style Matching</span>
+                        <span class="subtitle">Custom Tag Support</span>
                     </div>
                 </div>
 
@@ -214,7 +212,7 @@ function openSplitEditor() {
 
             <div class="healer-footer">
                 <div class="footer-status">
-                     <span class="tag-badge"><i class="fa-solid fa-layer-group"></i> Stack Logic Active</span>
+                     <span class="tag-badge"><i class="fa-solid fa-tags"></i> Custom Tags Ready</span>
                 </div>
                 <button id="btn-save-split" class="save-button">
                     <span class="btn-content"><i class="fa-solid fa-floppy-disk"></i> Save Changes</span>
@@ -226,6 +224,7 @@ function openSplitEditor() {
 
     $(document.body).append(modalHtml);
     
+    // Utilities
     window.copyText = function(elementId) {
         const copyText = document.getElementById(elementId);
         copyText.select();
@@ -273,7 +272,7 @@ function openSplitEditor() {
         let val = $('#editor-main').val();
         let fixed = healHtmlContent(val);
         $('#editor-main').val(fixed).trigger('input');
-        toastr.success("Tags auto-closed via Stack Matcher!");
+        toastr.success("Fixed tags (including custom ones)!");
     });
 
     $('#btn-save-split').on('click', async () => {
@@ -319,7 +318,7 @@ function loadSettings() {
     $('#html-healer-open-split').on('click', openSplitEditor);
 }
 
-// ใช้ CSS เดิม (Lavender) ได้เลย หรือจะใส่ซ้ำเพื่อความชัวร์ก็ได้
+// CSS เดิม (Lavender Theme)
 const styles = `
 <style>
 :root {
@@ -486,5 +485,5 @@ $('head').append(styles);
 
 jQuery(async () => {
     loadSettings();
-    console.log(`[${extensionName}] Ready (Stack-Based Engine).`);
+    console.log(`[${extensionName}] Ready (Stack V2 + Custom Tags).`);
 });
