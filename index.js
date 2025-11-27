@@ -1,40 +1,4 @@
-const extensionName = "html-healer";
-const defaultDepth = 1;
-
-/**
- * LOGIC 1: The Specialized CoT Fixer
- * Rules:
- * - Only 1 <think> and 1 </think> allowed.
- * - Detect "Close COT" only if it doesn't already have a tag.
- * - Case-insensitive checks to prevent double tagging (e.g. </THINK> and </think>).
- */
-function fixChainOfThought(text) {
-    if (!text) return "";
-
-    // Step A: Count how many <think> tags exist (Case Insensitive)
-    const openMatches = text.match(/<think>/gi) || [];
-    const openCount = openMatches.length;
-    
-    // If there are NO <think> tags, we don't need to do anything CoT related.
-    if (openCount === 0) return text;
-
-    // Step B: Enforce "Only One <think>"
-    // If the AI hallucinated and put multiple <think> tags, we keep the first one 
-    // and remove the rest to prevent structure breakage.
-    if (openCount > 1) {
-        console.log(`[${extensionName}] Found multiple <think> tags. Cleaning extras.`);
-        
-        // Find the first index (Case Insensitive search)
-        const firstIndex = text.search(/<think>/i);
-        // Get the actual tag string found (e.g. <THINK> or <think>) to handle length correctly
-        const firstTag = text.match(/<think>/i)[0];
-        
-        // Remove all subsequent <think> tags
-        let before = text.slice(0, firstIndex + firstTag.length);
-        // Replace globally with case-insensitivity in the 'after' chunk
-        let after = text.slice(firstIndex + firstTag.length).replace(/<think>/gi, ""); 
-        text = before + after;
-    }
+799608    }
 
     // Step C: Check if it is already closed (Case Insensitive)
     if (/<\/think>/i.test(text)) {
