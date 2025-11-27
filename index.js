@@ -5,8 +5,8 @@ const defaultDepth = 1;
  * LOGIC 1: The Specialized CoT Fixer
  * Rules:
  * - Only 1 <think> and 1 </think> allowed.
- * - Detect "Close COT" only if it doesn't already have a tag.
- * - Case-insensitive checks to prevent double tagging.
+ * - Detect "Close COT" phrases.
+ * - NEW: Detect HTML/CSS structure (div, span, etc.) to force close CoT.
  * - Ensures </think> is followed by a new line.
  */
 function fixChainOfThought(text) {
@@ -20,6 +20,7 @@ function fixChainOfThought(text) {
     if (openCount === 0) return text;
 
     // Step B: Enforce "Only One <think>"
+    // If multiple exist, keep the first one, remove others.
     if (openCount > 1) {
         console.log(`[${extensionName}] Found multiple <think> tags. Cleaning extras.`);
         const firstIndex = text.search(/<think>/i);
@@ -32,7 +33,7 @@ function fixChainOfThought(text) {
 
     // Step C: Check if it is already closed (Case Insensitive)
     if (/<\/think>/i.test(text)) {
-        // Optional: Ensure there is only one closing tag too
+        // Ensure there is only one closing tag
         const closeMatches = text.match(/<\/think>/gi) || [];
         if (closeMatches.length > 1) {
              const firstCloseIndex = text.search(/<\/think>/i);
@@ -44,13 +45,40 @@ function fixChainOfThought(text) {
         }
 
         // FORMATTING FIX: Ensure </think> is followed by a new line
-        // We replace "</think>" + any immediate whitespace with "</think>\n"
         text = text.replace(/<\/think>\s*/i, "</think>\n");
 
         return text; 
     }
 
-    // Step D: It is NOT closed. Let's find where to close it.
+    // --- STEP D (NEW): Detect HTML Structure Start ---
+    // User Requirement: If we see <div> or CSS/HTML stuff, close the <think> there.
+    // We look for common layout tags appearing AFTER the <think> tag.
+    
+    // 1. Find where <think> ends
+    const thinkIndex = text.search(/<think>/i);
+    const thinkTagLength = text.match(/<think>/i)[0].length;
+    const searchStartIndex = thinkIndex + thinkTagLength;
+    const textAfterThink = text.slice(searchStartIndex);
+
+    // 2. Regex for common "Content Start" tags
+    // Matches <div, <span, <p, <style, <link, <table, etc.
+    const htmlStartPattern = /<(div|span|p|style|link|table|section|header|footer|blockquote|code|pre)\b/i;
+    const htmlMatch = textAfterThink.match(htmlStartPattern);
+
+    if (htmlMatch) {
+        console.log(`[${extensionName}] Found HTML structure (${htmlMatch[0]}). Closing CoT before it.`);
+        
+        // Calculate the absolute index where the HTML tag starts
+        const splitIndex = searchStartIndex + htmlMatch.index;
+        
+        const before = text.slice(0, splitIndex);
+        const after = text.slice(splitIndex);
+        
+        // Insert closing tag + newline BEFORE the HTML tag
+        return before + "\n</think>\n" + after;
+    }
+
+    // Step E: Stop Phrases (Fallback if no HTML structure found)
     const stopPhrases = [
         "Close COT",
         "CLOSE COT",
@@ -59,18 +87,15 @@ function fixChainOfThought(text) {
         "Analysis complete"
     ];
 
-    // Regex: Match phrase if NOT followed by </think> later
     const regexPattern = new RegExp(`(${stopPhrases.join("|")})(?![\\s\\S]*<\\/think>)`, "i");
 
     if (regexPattern.test(text)) {
         console.log(`[${extensionName}] Found CoT stop phrase. Closing tag.`);
-        // Added \n before and after </think> for spacing
         return text.replace(regexPattern, "$1\n</think>\n");
     }
 
-    // Step E: Fallback - Close at end if no phrase found
-    console.log(`[${extensionName}] No stop phrase. Force closing at end.`);
-    // Added \n before and after
+    // Step F: Ultimate Fallback - Close at end
+    console.log(`[${extensionName}] No stop phrase or HTML structure. Force closing at end.`);
     return text + "\n</think>\n";
 }
 
@@ -86,17 +111,11 @@ function healHtml(dirtyHtml, mode = 'both') {
     // 1. Logic: Fix CoT First (If requested)
     if (mode === 'both' || mode === 'cot_only') {
          preProcessed = fixChainOfThought(dirtyHtml);
-         // If we only want to fix CoT, we return here immediately.
          if (mode === 'cot_only') return preProcessed;
     }
 
     // 2. Logic: Fix HTML (If requested)
-    // We arrive here if mode is 'both' or 'html_only'
-
-    // --- PROTECTION STEP ---
     // Extract <think>...<think> so DOMParser doesn't touch it
-    // Even if in 'html_only' mode, we protect the existing CoT block (if valid)
-    // to prevent DOMParser from mangling it.
     const cotRegex = /<think>[\s\S]*?<\/think>/i;
     const cotMatch = preProcessed.match(cotRegex);
     let storedCot = "";
@@ -107,7 +126,7 @@ function healHtml(dirtyHtml, mode = 'both') {
         preProcessed = preProcessed.replace(cotMatch[0], placeholder);
     }
 
-    // 3. Now use DOMParser for the rest
+    // Use DOMParser
     const parser = new DOMParser();
     const doc = parser.parseFromString(preProcessed, 'text/html');
     
@@ -119,7 +138,7 @@ function healHtml(dirtyHtml, mode = 'both') {
 
     let healedHtml = doc.body.innerHTML;
 
-    // --- RESTORATION STEP ---
+    // Restore CoT
     if (storedCot) {
         healedHtml = healedHtml.replace(placeholder, storedCot);
     }
@@ -152,7 +171,6 @@ async function fixMessages() {
         if (targetIndex < 0) break;
 
         const originalMes = chat[targetIndex].mes;
-        // Pass the mode to the healer function
         const healedMes = healHtml(originalMes, mode);
 
         if (originalMes !== healedMes) {
@@ -215,5 +233,5 @@ function loadSettings() {
 
 jQuery(async () => {
     loadSettings();
-    console.log(`[${extensionName}] Ready (Multi-Mode).`);
+    console.log(`[${extensionName}] Ready (Formatted CoT + HTML Detect).`);
 });
