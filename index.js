@@ -4,9 +4,9 @@ const extensionName = "html-healer";
 const DEFAULT_CUSTOM_TAGS = "scrollborad.zeal, neon-box, chat-bubble";
 let userCustomTags = new Set();
 let aiSettings = {
-    provider: 'main', 
+    provider: 'main', // 'main' or 'gemini'
     apiKey: '',
-    model: 'gemini-2.5-flash'
+    model: 'gemini-2.0-flash'
 };
 
 // --- LOGGING SYSTEM ---
@@ -17,11 +17,9 @@ function addLog(message, type = 'info') {
     const timestamp = new Date().toLocaleTimeString();
     const logEntry = { time: timestamp, msg: message, type: type };
     
-    // Add to internal history
-    logHistory.unshift(logEntry); // ใหม่สุดอยู่บน
+    logHistory.unshift(logEntry);
     if (logHistory.length > MAX_LOGS) logHistory.pop();
     
-    // Also output to browser console (F12)
     const prefix = `[${extensionName}]`;
     if (type === 'error') console.error(prefix, message);
     else if (type === 'warn') console.warn(prefix, message);
@@ -29,7 +27,6 @@ function addLog(message, type = 'info') {
 }
 
 function showLogViewer() {
-    // Remove existing if any
     $('#html-healer-logs').remove();
 
     let logsHtml = logHistory.map(l => {
@@ -119,7 +116,7 @@ function saveAllSettings() {
     
     aiSettings.provider = $('#setting_ai_provider').val();
     aiSettings.apiKey = $('#setting_gemini_key').val().trim();
-    aiSettings.model = $('#setting_gemini_model').val(); // Dropdown value
+    aiSettings.model = $('#setting_gemini_model').val();
     
     localStorage.setItem('html-healer-ai-settings', JSON.stringify(aiSettings));
 
@@ -182,7 +179,7 @@ function applySplitPoint(startIndex) {
 
 function smartLineFix(fullText) {
     if (!fullText) return "";
-    addLog("Starting Hybrid Fix...", "info");
+    addLog("Starting Hybrid Code Fix...", "info");
     const lines = fullText.split('\n');
     let resultLines = [];
     
@@ -279,7 +276,6 @@ function smartLineFix(fullText) {
         else resultLines.push(closingBlocks);
     }
     
-    addLog("Hybrid Fix completed.", "success");
     return resultLines.join('\n');
 }
 
@@ -288,12 +284,12 @@ function countWords(str) {
     return str.trim().split(/\s+/).length;
 }
 
-// --- 2. Logic: AI Action (Direct Gemini or Main) ---
+// --- 2. Logic: AI Action ---
 
 async function callGeminiAPI(prompt, apiKey) {
     if (!apiKey) throw new Error("Missing Gemini API Key in settings.");
     
-    const model = aiSettings.model || "gemini-2.5-flash";
+    const model = aiSettings.model || "gemini-2.0-flash";
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
     
     addLog(`Calling Gemini API (${model})...`, "info");
@@ -328,86 +324,161 @@ async function callGeminiAPI(prompt, apiKey) {
     }
 }
 
-async function performAiFix() {
-    const mainText = $('#editor-main').val();
-    if (!mainText || !mainText.trim()) return toastr.warning("No story text to fix.");
+// ฟังก์ชันกลางสำหรับเรียก AI แก้ไข (ใช้ได้ทั้ง Editor และ Quick Fix)
+async function runAiFixLogic(textToFix) {
+    if (!textToFix || !textToFix.trim()) throw new Error("No text to fix.");
 
-    toastr.info("Sending to AI...", "Fixing HTML");
-    addLog("Initiating AI Fix...", "info");
-    
     const prompt = `You are an expert HTML repair tool.
 Task: Fix the malformed HTML in the provided text below.
 Rules:
 1. Close any unclosed tags correctly.
 2. Fix broken attributes.
-3. DO NOT change the story content, dialogue, or descriptions.
-4. DO NOT add any conversational text.
-5. Return ONLY the raw fixed text.
+3. PRESERVE <think>...</think> tags and their content exactly as is. DO NOT modify thought process.
+4. DO NOT change the story content, dialogue, or descriptions.
+5. DO NOT add any conversational text.
+6. Return ONLY the raw fixed text.
 
 [TEXT START]
-${mainText}
+${textToFix}
 [TEXT END]`;
 
-    try {
-        let fixedText = "";
+    let fixedText = "";
+    if (aiSettings.provider === 'gemini') {
+        fixedText = await callGeminiAPI(prompt, aiSettings.apiKey);
+    } else {
+        if (typeof generateQuietPrompt !== 'function') throw new Error("ST Main API unavailable.");
+        addLog("Calling Main API (Quiet Prompt)...", "info");
+        fixedText = await generateQuietPrompt(prompt, true, false); 
+    }
+    
+    if (!fixedText) throw new Error("AI returned empty response.");
+    
+    let cleanFixed = fixedText.trim();
+    cleanFixed = cleanFixed.replace(/^```html\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '');
+    return cleanFixed;
+}
 
-        if (aiSettings.provider === 'gemini') {
-            fixedText = await callGeminiAPI(prompt, aiSettings.apiKey);
-        } else {
-            if (typeof generateQuietPrompt !== 'function') {
-                addLog("ST Main API unavailable.", "error");
-                return toastr.error("Cannot access ST Main API.");
-            }
-            addLog("Calling Main API (Quiet Prompt)...", "info");
-            fixedText = await generateQuietPrompt(prompt, true, false); 
-        }
-        
-        if (fixedText) {
-            let cleanFixed = fixedText.trim();
-            cleanFixed = cleanFixed.replace(/^```html\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '');
-            
-            $('#editor-main').val(cleanFixed).trigger('input');
-            const providerName = aiSettings.provider === 'gemini' ? aiSettings.model : 'Main API';
-            toastr.success(`AI Fix Applied (${providerName})!`);
-            addLog(`AI Fix Applied successfully using ${providerName}`, "success");
-        } else {
-            toastr.warning("AI returned empty response.");
-            addLog("AI returned empty response.", "warn");
-        }
+// ใช้สำหรับปุ่ม AI Fix ในหน้า Editor
+async function performAiFixEditor() {
+    const mainText = $('#editor-main').val();
+    if (!mainText) return toastr.warning("No story text.");
+
+    toastr.info("Sending to AI...", "Fixing");
+    addLog("Editor: Initiating AI Fix...", "info");
+
+    try {
+        const fixed = await runAiFixLogic(mainText);
+        $('#editor-main').val(fixed).trigger('input');
+        toastr.success("AI Fix Applied!");
+        addLog("Editor: AI Fix successful.", "success");
     } catch (err) {
         console.error(err);
-        toastr.error("AI Fix Failed: " + err);
-        addLog(`AI Fix Failed: ${err.message}`, "error");
+        toastr.error("AI Fix Failed: " + err.message);
+        addLog(`Editor: AI Fix Failed: ${err.message}`, "error");
     }
 }
 
-async function performSmartQuickFix() {
+// --- 2.5 Quick Fix Selection Logic ---
+
+function showQuickFixPopup() {
+    $('#html-healer-qf-popup').remove();
+    
+    const popupHtml = `
+    <div id="html-healer-qf-popup" class="html-healer-overlay">
+        <div class="html-healer-box" style="max-width:400px; height:auto; padding:20px;">
+            <div style="text-align:center; margin-bottom:15px;">
+                <h3 style="margin:0; color:var(--lavender-text);">Choose Fix Method</h3>
+                <small style="opacity:0.7;">Select how you want to repair HTML</small>
+            </div>
+            
+            <div style="display:flex; flex-direction:column; gap:10px;">
+                <button id="qf-btn-code" class="menu_button" style="padding:15px; text-align:left; display:flex; align-items:center; gap:10px;">
+                    <i class="fa-solid fa-code" style="font-size:1.2em; color:#a6b1e1;"></i>
+                    <div>
+                        <div style="font-weight:bold;">Code Fix</div>
+                        <div style="font-size:0.8em; opacity:0.6;">Fast, Offline, Hybrid Logic</div>
+                    </div>
+                </button>
+                
+                <button id="qf-btn-ai" class="menu_button" style="padding:15px; text-align:left; display:flex; align-items:center; gap:10px; border:1px solid var(--smart-theme-color);">
+                    <i class="fa-solid fa-robot" style="font-size:1.2em; color:var(--smart-theme-color);"></i>
+                    <div>
+                        <div style="font-weight:bold; color:var(--smart-theme-color);">AI Fix</div>
+                        <div style="font-size:0.8em; opacity:0.6;">Smarter, uses ${aiSettings.provider === 'gemini' ? aiSettings.model : 'Main API'}</div>
+                    </div>
+                </button>
+            </div>
+            
+            <div style="margin-top:15px; text-align:center;">
+                <button onclick="$('#html-healer-qf-popup').remove()" style="background:none; border:none; color:#666; cursor:pointer;">Cancel</button>
+            </div>
+        </div>
+    </div>`;
+
+    $(document.body).append(popupHtml);
+
+    $('#qf-btn-code').on('click', () => {
+        $('#html-healer-qf-popup').remove();
+        runQuickFix('code');
+    });
+
+    $('#qf-btn-ai').on('click', () => {
+        $('#html-healer-qf-popup').remove();
+        runQuickFix('ai');
+    });
+}
+
+async function runQuickFix(mode) {
     const context = SillyTavern.getContext();
     const chat = context.chat;
-    if (!chat || chat.length === 0) return toastr.warning("No messages to fix.");
+    if (!chat || chat.length === 0) return toastr.warning("No messages.");
 
     const lastIndex = chat.length - 1;
     const originalText = chat[lastIndex].mes;
     const hasThinking = /<think|&lt;think|&lt;\/think|<\/think>/i.test(originalText);
 
-    if (hasThinking) {
-        toastr.info("Thinking detected! Opening editor...");
-        addLog("QuickFix: Thinking detected. Opening editor.", "info");
-        openSplitEditor(); 
-    } else {
-        const fixedText = smartLineFix(originalText);
-        if (fixedText !== originalText) {
-            chat[lastIndex].mes = fixedText;
-            await context.saveChat();
-            await context.reloadCurrentChat();
-            toastr.success("HTML Fixed (Hybrid)!");
-            addLog("QuickFix: Applied Hybrid Fix.", "success");
+    if (mode === 'code') {
+        // Code Fix Mode
+        if (hasThinking) {
+            toastr.info("Thinking detected! Opening editor for safety.");
+            addLog("QuickFix(Code): Thinking detected. Opening editor.", "warn");
+            openSplitEditor();
         } else {
-            toastr.success("HTML looks good.");
-            addLog("QuickFix: No changes needed.", "info");
+            const fixedText = smartLineFix(originalText);
+            if (fixedText !== originalText) {
+                chat[lastIndex].mes = fixedText;
+                await context.saveChat();
+                await context.reloadCurrentChat();
+                toastr.success("HTML Fixed (Code Hybrid)!");
+                addLog("QuickFix(Code): Applied Hybrid Fix.", "success");
+            } else {
+                toastr.success("HTML looks good.");
+            }
+        }
+    } else {
+        // AI Fix Mode
+        toastr.info("AI is fixing message...", "Please wait");
+        addLog("QuickFix(AI): Starting...", "info");
+        try {
+            // ส่งไปทั้งข้อความเลย (AI จะจัดการ Think tag ตาม Prompt ที่สั่งไว้)
+            const fixedText = await runAiFixLogic(originalText);
+            if (fixedText && fixedText !== originalText) {
+                chat[lastIndex].mes = fixedText;
+                await context.saveChat();
+                await context.reloadCurrentChat();
+                toastr.success("HTML Fixed by AI!");
+                addLog("QuickFix(AI): Success.", "success");
+            } else {
+                toastr.info("AI made no changes.");
+            }
+        } catch (err) {
+            console.error(err);
+            toastr.error("AI Fix Failed: " + err.message);
+            addLog(`QuickFix(AI) Failed: ${err.message}`, "error");
         }
     }
 }
+
 
 // --- 3. UI Builder ---
 let targetMessageId = null;
@@ -524,7 +595,7 @@ function openSplitEditor() {
         toastr.success("Fixed with Hybrid Logic");
     });
 
-    $('#btn-ai-fix').on('click', performAiFix);
+    $('#btn-ai-fix').on('click', performAiFixEditor); // ใช้ฟังก์ชันใหม่
 
     $('#editor-cot, #editor-main').on('input', updateCounts);
 
@@ -546,7 +617,7 @@ function openSplitEditor() {
             await context.saveChat();
             await context.reloadCurrentChat();
             toastr.success("Saved!");
-            addLog("Message updated and saved.", "success");
+            addLog("Editor: Changes saved.", "success");
         }
         $('#html-healer-modal').remove();
     });
@@ -597,8 +668,11 @@ function loadSettings() {
 
     // Dropdown options
     const modelOptions = [
-        "gemini-2.5-flash",
-        "gemini-2.5-pro"
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "gemini-2.0-flash-exp",
+        "gemini-1.5-flash-8b"
     ].map(m => `<option value="${m}">${m}</option>`).join('');
 
     $('#extensions_settings').append(`
@@ -670,7 +744,8 @@ function loadSettings() {
     });
 
     $('#html-healer-open-split').on('click', openSplitEditor);
-    $('#html-healer-quick-fix').on('click', performSmartQuickFix);
+    // เปลี่ยนมาเรียก showQuickFixPopup แทน
+    $('#html-healer-quick-fix').on('click', showQuickFixPopup); 
     $('#btn_save_all').on('click', saveAllSettings);
     $('#btn_view_logs').on('click', showLogViewer);
 }
