@@ -203,55 +203,49 @@ const STANDARD_TAGS_LIST = new Set([
     "wbr", "font", "center", "strike", "tt", "big", "think" // include think to ignore learning it
 ]);
 
-// แทนที่ฟังก์ชัน smartLineFix ของเดิมด้วยอันนี้
 function smartLineFix(fullText) {
     if (!fullText) return "";
-    addLog("Starting Robust Stack Fix (New Core)...", "info");
+    addLog("Starting Robust Stack Fix (Universal Mode)...", "info");
 
-    // 1. Tokenize: แยกข้อความออกจาก Tag ด้วย Regex
-    // จับแพทเทิร์น <tag...> หรือ </tag>
+    // 1. Tokenize: แยกข้อความออกจาก Tag
     const tagRegex = /(<\/?(?:[a-zA-Z0-9\.\-\_:]+)[^>]*>)/g;
     const tokens = fullText.split(tagRegex);
 
-    // รายชื่อ Tag ที่ไม่ต้องมีตัวปิด (Void Elements)
+    // รายชื่อ Void Tags มาตรฐาน (ไม่ต้องมีปิด)
     const voidTags = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
     
-    let stack = [];     // จำ Tag ที่เปิดค้างไว้
-    let fixedText = ""; // เก็บผลลัพธ์ที่แก้แล้ว
+    let stack = [];     
+    let fixedText = ""; 
 
     for (let token of tokens) {
-        if (!token) continue; // ข้ามถ้าเป็น string ว่าง
+        if (!token) continue; 
 
-        // เช็คว่าเป็น Tag หรือไม่ (ต้องเริ่มด้วย < และจบด้วย >)
+        // เช็คว่าเป็น Tag หรือไม่
         if (token.startsWith("<") && token.endsWith(">")) {
-            // ดึงชื่อ Tag ออกมา เช่น <div class="..."> -> ได้ div
+            // ดึงชื่อ Tag ออกมา
             const match = token.match(/^<\/?([a-zA-Z0-9\.\-\_:]+)/);
-            if (!match) {
-                fixedText += token; // แกะชื่อไม่ออก ตีว่าเป็นข้อความปกติ
+            
+            // ถ้าแกะชื่อไม่ออก หรือชื่อไม่ได้ขึ้นต้นด้วยตัวอักษร (เช่น <3 หรือ <100) ให้ข้าม
+            if (!match || !/^[a-zA-Z]/.test(match[1])) {
+                fixedText += token; 
                 continue;
             }
 
             const tagName = match[1].toLowerCase();
             const isClosing = token.startsWith("</");
+            // [NEW] เช็คว่าเป็น Self-closing หรือไม่ (ลงท้ายด้วย />)
+            const isSelfClosing = /\/>$/.test(token.trim());
 
-            // ตรวจสอบว่าเป็น Tag ที่เรารู้จักหรือไม่ (Standard หรือ Custom)
-            const isStandard = STANDARD_TAGS_LIST.has(tagName);
-            const isCustom = userCustomTags.has(tagName);
+            // --- ส่วนที่แก้: ลบการเช็ค isStandard / isCustom ออก ---
+            // เราจะถือว่าถ้ามันผ่าน Regex ข้างบนมาได้ มันคือ Tag ที่เราต้องดูแลทั้งหมด
 
-            // ถ้าเป็น Tag แปลกปลอมที่ไม่รู้จัก ให้ปล่อยผ่านเป็นข้อความเดิม (ไม่เอาเข้า Stack)
-            if (!isStandard && !isCustom) {
-                fixedText += token;
-                continue;
-            }
-
-            if (voidTags.has(tagName)) {
-                // เป็น Tag เดี่ยว (เช่น <br>, <img>) ไม่ต้องทำอะไรกับ Stack
+            if (voidTags.has(tagName) || isSelfClosing) {
+                // เป็น Tag เดี่ยว หรือเขียนแบบ Self-closing (<tag />) -> ผ่านเลย ไม่ต้องเข้า Stack
                 fixedText += token;
             } else if (isClosing) {
-                // --- กรณีเจอ Tag ปิด (เช่น </div>) ---
-                
-                // ค้นหาว่า Tag นี้เคยเปิดไว้ใน Stack หรือไม่ (หาจากบนลงล่าง)
+                // --- กรณีเจอ Tag ปิด ---
                 let foundIdx = -1;
+                // หาคู่ของมันใน Stack
                 for (let i = stack.length - 1; i >= 0; i--) {
                     if (stack[i] === tagName) {
                         foundIdx = i;
@@ -260,36 +254,31 @@ function smartLineFix(fullText) {
                 }
 
                 if (foundIdx !== -1) {
-                    // เจอว่าเคยเปิดไว้! 
-                    // กฎ: ต้องปิด Tag ลูกๆ ที่ซ้อนอยู่เหนือมันให้หมดก่อน (Auto-close children)
+                    // เจอคู่! ปิดลูกๆ ที่ซ้อนอยู่ให้หมดก่อน
                     while (stack.length > foundIdx + 1) {
                         const top = stack.pop();
-                        fixedText += `</${top}>`; // ปิดลูกที่ลืมปิด
+                        fixedText += `</${top}>`;
                     }
-                    
-                    // พอปิดลูกหมดแล้ว ก็ปิดตัวมันเอง
-                    stack.pop(); // เอาออกจาก Stack
-                    fixedText += token; // ใส่ Tag ปิดลงในข้อความ
+                    stack.pop(); // เอาตัวมันออกจาก Stack
+                    fixedText += token;
                 } else {
-                    // ไม่เจอใน Stack แสดงว่าเป็น Tag ปิดที่ไม่มีตัวเปิด (Stray closing tag)
-                    // วิธีแก้: ลบทิ้งไปเลย เพื่อความสะอาดของ HTML
-                    // fixedText += ""; 
-                    // (หรือถ้าอยากเก็บไว้ให้เอาคอมเมนต์บรรทัดล่างออก)
-                    // fixedText += token; 
+                    // เจอ Tag ปิดลอยๆ ไม่มีตัวเปิด (Stray closing tag)
+                    // เก็บไว้เหมือนเดิม (หรือจะลบทิ้งก็ได้ถ้าอยากคลีน)
+                    fixedText += token; 
                 }
             } else {
-                // --- กรณีเจอ Tag เปิด (เช่น <div>) ---
-                stack.push(tagName); // ใส่เข้า Stack รอวันปิด
+                // --- กรณีเจอ Tag เปิด ---
+                stack.push(tagName); // ใส่ Stack รอวันปิด
                 fixedText += token;
             }
 
         } else {
-            // เป็นข้อความเนื้อเรื่องปกติ
+            // ข้อความปกติ
             fixedText += token;
         }
     }
 
-    // จบข้อความ: ถ้ายังมี Tag ค้างใน Stack ให้ปิดให้หมด (Auto-close remaining)
+    // จบข้อความ: ปิด Tag ที่ค้างใน Stack ให้หมด
     while (stack.length > 0) {
         const top = stack.pop();
         fixedText += `</${top}>`;
@@ -297,7 +286,6 @@ function smartLineFix(fullText) {
 
     return fixedText;
 }
-
 function countWords(str) {
     if (!str) return 0;
     return str.trim().split(/\s+/).length;
