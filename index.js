@@ -4,31 +4,95 @@ const extensionName = "html-healer";
 const DEFAULT_CUSTOM_TAGS = "scrollborad.zeal, neon-box, chat-bubble";
 let userCustomTags = new Set();
 let aiSettings = {
-    provider: 'main', // 'main' or 'gemini'
+    provider: 'main', 
     apiKey: '',
-    model: 'gemini-2.5-flash' };
+    model: 'gemini-2.5-flash'
+};
+
+// --- LOGGING SYSTEM ---
+const MAX_LOGS = 50;
+let logHistory = [];
+
+function addLog(message, type = 'info') {
+    const timestamp = new Date().toLocaleTimeString();
+    const logEntry = { time: timestamp, msg: message, type: type };
+    
+    // Add to internal history
+    logHistory.unshift(logEntry); // ใหม่สุดอยู่บน
+    if (logHistory.length > MAX_LOGS) logHistory.pop();
+    
+    // Also output to browser console (F12)
+    const prefix = `[${extensionName}]`;
+    if (type === 'error') console.error(prefix, message);
+    else if (type === 'warn') console.warn(prefix, message);
+    else console.log(prefix, message);
+}
+
+function showLogViewer() {
+    // Remove existing if any
+    $('#html-healer-logs').remove();
+
+    let logsHtml = logHistory.map(l => {
+        let color = '#ccc';
+        if (l.type === 'error') color = '#ff6b6b';
+        if (l.type === 'warn') color = '#feca57';
+        if (l.type === 'success') color = '#1dd1a1';
+        return `<div style="border-bottom:1px solid #444; padding:4px 0; color:${color}; font-family:monospace; font-size:0.85em;">
+            <span style="opacity:0.6;">[${l.time}]</span> ${l.msg}
+        </div>`;
+    }).join('');
+
+    if (logsHtml === "") logsHtml = "<div style='text-align:center; opacity:0.5; padding:20px;'>No logs yet.</div>";
+
+    const modalHtml = `
+    <div id="html-healer-logs" class="html-healer-overlay">
+        <div class="html-healer-box" style="max-width:600px; height:60vh;">
+            <div class="healer-header">
+                <div class="header-brand">
+                    <div class="header-icon"><i class="fa-solid fa-clipboard-list"></i></div>
+                    <div class="header-text"><span class="title">Extension Logs</span></div>
+                </div>
+                <div class="header-controls">
+                    <div class="close-btn" onclick="$('#html-healer-logs').remove()"><i class="fa-solid fa-xmark"></i></div>
+                </div>
+            </div>
+            <div class="healer-body" style="background:#111; overflow-y:auto; padding:10px; display:block;">
+                ${logsHtml}
+            </div>
+            <div class="healer-footer">
+                <button onclick="copyLogs()" class="menu_button" style="margin-right:5px; flex:1;"><i class="fa-regular fa-copy"></i> Copy</button>
+                <button onclick="$('#html-healer-logs').remove()" class="menu_button" style="background:#444; flex:0 0 80px;">Close</button>
+            </div>
+        </div>
+    </div>`;
+    
+    $(document.body).append(modalHtml);
+}
+
+window.copyLogs = () => {
+    const text = logHistory.map(l => `[${l.time}] [${l.type.toUpperCase()}] ${l.msg}`).join('\n');
+    navigator.clipboard.writeText(text);
+    toastr.success("Logs copied to clipboard");
+};
 
 function loadSettingsData() {
-    // Load Custom Tags
     const storedTags = localStorage.getItem('html-healer-custom-tags');
     const rawString = storedTags !== null ? storedTags : DEFAULT_CUSTOM_TAGS;
+    
     userCustomTags.clear();
     rawString.split(',').forEach(t => {
         const clean = t.trim().toLowerCase();
         if (clean) userCustomTags.add(clean);
     });
 
-    // Load AI Settings
     const storedAi = localStorage.getItem('html-healer-ai-settings');
     if (storedAi) {
         try {
             const parsed = JSON.parse(storedAi);
-            // Merge defaults in case of new fields
             aiSettings = { ...aiSettings, ...parsed };
         } catch(e) { console.error("Failed to parse AI settings", e); }
     }
 
-    // Update UI if open
     updateSettingsUI();
 }
 
@@ -39,9 +103,8 @@ function updateSettingsUI() {
     if ($('#setting_ai_provider').length) {
         $('#setting_ai_provider').val(aiSettings.provider);
         $('#setting_gemini_key').val(aiSettings.apiKey);
-        $('#setting_gemini_model').val(aiSettings.model); // Load model name to UI
+        $('#setting_gemini_model').val(aiSettings.model);
         
-        // Show/Hide Gemini inputs
         if (aiSettings.provider === 'gemini') {
             $('.gemini-settings').slideDown();
         } else {
@@ -51,19 +114,18 @@ function updateSettingsUI() {
 }
 
 function saveAllSettings() {
-    // Save Tags
     const tagsVal = $('#setting_custom_tags').val();
     localStorage.setItem('html-healer-custom-tags', tagsVal);
     
-    // Save AI
     aiSettings.provider = $('#setting_ai_provider').val();
     aiSettings.apiKey = $('#setting_gemini_key').val().trim();
-    aiSettings.model = $('#setting_gemini_model').val().trim() || 'gemini-2.5-flash'; // Save model name
+    aiSettings.model = $('#setting_gemini_model').val(); // Dropdown value
     
     localStorage.setItem('html-healer-ai-settings', JSON.stringify(aiSettings));
 
     loadSettingsData();
     toastr.success("Settings Saved!");
+    addLog("Settings updated by user.", "info");
 }
 
 // --- 1. Logic (Analysis & Fix) ---
@@ -118,9 +180,9 @@ function applySplitPoint(startIndex) {
     });
 }
 
-// --- HYBRID FIX LOGIC (Manual/Regex Backup) ---
 function smartLineFix(fullText) {
     if (!fullText) return "";
+    addLog("Starting Hybrid Fix...", "info");
     const lines = fullText.split('\n');
     let resultLines = [];
     
@@ -216,6 +278,8 @@ function smartLineFix(fullText) {
         if (resultLines.length > 0) resultLines[resultLines.length - 1] += closingBlocks;
         else resultLines.push(closingBlocks);
     }
+    
+    addLog("Hybrid Fix completed.", "success");
     return resultLines.join('\n');
 }
 
@@ -229,9 +293,10 @@ function countWords(str) {
 async function callGeminiAPI(prompt, apiKey) {
     if (!apiKey) throw new Error("Missing Gemini API Key in settings.");
     
-
     const model = aiSettings.model || "gemini-2.5-flash";
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    
+    addLog(`Calling Gemini API (${model})...`, "info");
     
     const payload = {
         contents: [{
@@ -247,13 +312,18 @@ async function callGeminiAPI(prompt, apiKey) {
 
     if (!response.ok) {
         const err = await response.json();
-        throw new Error(err.error?.message || "Gemini API request failed.");
+        const errMsg = err.error?.message || "Request failed";
+        addLog(`Gemini API Error: ${errMsg}`, "error");
+        throw new Error(errMsg);
     }
 
     const data = await response.json();
     try {
-        return data.candidates[0].content.parts[0].text;
+        const result = data.candidates[0].content.parts[0].text;
+        addLog("Gemini response received.", "success");
+        return result;
     } catch (e) {
+        addLog("Failed to parse Gemini response.", "error");
         throw new Error("Unexpected response format from Gemini.");
     }
 }
@@ -263,6 +333,7 @@ async function performAiFix() {
     if (!mainText || !mainText.trim()) return toastr.warning("No story text to fix.");
 
     toastr.info("Sending to AI...", "Fixing HTML");
+    addLog("Initiating AI Fix...", "info");
     
     const prompt = `You are an expert HTML repair tool.
 Task: Fix the malformed HTML in the provided text below.
@@ -281,13 +352,13 @@ ${mainText}
         let fixedText = "";
 
         if (aiSettings.provider === 'gemini') {
-            console.log(`[HTML-Healer] Using Direct Gemini (${aiSettings.model})`);
             fixedText = await callGeminiAPI(prompt, aiSettings.apiKey);
         } else {
             if (typeof generateQuietPrompt !== 'function') {
+                addLog("ST Main API unavailable.", "error");
                 return toastr.error("Cannot access ST Main API.");
             }
-            console.log(`[HTML-Healer] Using Main API`);
+            addLog("Calling Main API (Quiet Prompt)...", "info");
             fixedText = await generateQuietPrompt(prompt, true, false); 
         }
         
@@ -296,13 +367,17 @@ ${mainText}
             cleanFixed = cleanFixed.replace(/^```html\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '');
             
             $('#editor-main').val(cleanFixed).trigger('input');
-            toastr.success(`AI Fix Applied (${aiSettings.provider === 'gemini' ? aiSettings.model : 'Main API'})!`);
+            const providerName = aiSettings.provider === 'gemini' ? aiSettings.model : 'Main API';
+            toastr.success(`AI Fix Applied (${providerName})!`);
+            addLog(`AI Fix Applied successfully using ${providerName}`, "success");
         } else {
             toastr.warning("AI returned empty response.");
+            addLog("AI returned empty response.", "warn");
         }
     } catch (err) {
         console.error(err);
         toastr.error("AI Fix Failed: " + err);
+        addLog(`AI Fix Failed: ${err.message}`, "error");
     }
 }
 
@@ -317,6 +392,7 @@ async function performSmartQuickFix() {
 
     if (hasThinking) {
         toastr.info("Thinking detected! Opening editor...");
+        addLog("QuickFix: Thinking detected. Opening editor.", "info");
         openSplitEditor(); 
     } else {
         const fixedText = smartLineFix(originalText);
@@ -325,8 +401,10 @@ async function performSmartQuickFix() {
             await context.saveChat();
             await context.reloadCurrentChat();
             toastr.success("HTML Fixed (Hybrid)!");
+            addLog("QuickFix: Applied Hybrid Fix.", "success");
         } else {
             toastr.success("HTML looks good.");
+            addLog("QuickFix: No changes needed.", "info");
         }
     }
 }
@@ -468,6 +546,7 @@ function openSplitEditor() {
             await context.saveChat();
             await context.reloadCurrentChat();
             toastr.success("Saved!");
+            addLog("Message updated and saved.", "success");
         }
         $('#html-healer-modal').remove();
     });
@@ -516,6 +595,12 @@ function loadSettings() {
     if ($('.html-healer-settings').length > 0) return;
     loadSettingsData();
 
+    // Dropdown options
+    const modelOptions = [
+        "gemini-2.5-flash",
+        "gemini-2.5-pro"
+    ].map(m => `<option value="${m}">${m}</option>`).join('');
+
     $('#extensions_settings').append(`
         <div class="html-healer-settings">
             <div class="inline-drawer">
@@ -545,14 +630,21 @@ function loadSettings() {
                             <input type="password" id="setting_gemini_key" class="text_pole" style="width:100%; margin-bottom:5px;" placeholder="AIzaSy...">
                             
                             <label style="font-size:0.85em;">Model Name:</label>
-                            <input type="text" id="setting_gemini_model" class="text_pole" style="width:100%;" placeholder="gemini-2.5-flash">
-                            <small style="opacity:0.6; display:block; margin-top:2px;">Type any available model ID (e.g. gemini-2.5-flash-exp)</small>
+                            <select id="setting_gemini_model" class="text_pole" style="width:100%;">
+                                ${modelOptions}
+                            </select>
                         </div>
                     </div>
 
-                    <button id="btn_save_all" class="menu_button" style="margin-top:5px; padding:8px; font-weight:bold;">
-                        <i class="fa-solid fa-floppy-disk"></i> Save Settings
-                    </button>
+                    <div style="display:flex; gap:5px; margin-top:10px;">
+                        <button id="btn_save_all" class="menu_button" style="flex:2; padding:8px; font-weight:bold;">
+                            <i class="fa-solid fa-floppy-disk"></i> Save Settings
+                        </button>
+                        <button id="btn_view_logs" class="menu_button" style="flex:1; padding:8px; background:#444;">
+                            <i class="fa-solid fa-list"></i> Logs
+                        </button>
+                    </div>
+                    
                     <hr style="opacity:0.2;">
 
                     <div style="display:flex; gap:5px; margin-top:5px;">
@@ -579,8 +671,8 @@ function loadSettings() {
 
     $('#html-healer-open-split').on('click', openSplitEditor);
     $('#html-healer-quick-fix').on('click', performSmartQuickFix);
-    
     $('#btn_save_all').on('click', saveAllSettings);
+    $('#btn_view_logs').on('click', showLogViewer);
 }
 
 // --- CSS UPDATED ---
@@ -728,4 +820,5 @@ $('head').append(styles);
 jQuery(async () => {
     loadSettings();
     console.log(`[${extensionName}] Ready.`);
+    addLog(`${extensionName} loaded successfully.`);
 });
