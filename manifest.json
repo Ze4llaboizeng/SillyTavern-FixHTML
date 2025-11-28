@@ -4,5 +4,6 @@
     "author": "Zealllll",
     "description": "Automatically fixes broken HTML tags and unclosed divs in messages.",
     "js": "index.js",
+    "css": "style.css",
     "display_name": "HTML Healer"
 }
