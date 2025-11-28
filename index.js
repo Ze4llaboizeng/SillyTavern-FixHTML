@@ -6,7 +6,8 @@ let userCustomTags = new Set();
 let aiSettings = {
     provider: 'main', // 'main' or 'gemini'
     apiKey: '',
-    model: 'gemini-2.5-flash'
+    model: 'gemini-2.5-flash',
+    autoLearn: true // [New] เปิดโหมดเรียนรู้เป็นค่าเริ่มต้น
 };
 
 // --- LOGGING SYSTEM ---
@@ -101,6 +102,7 @@ function updateSettingsUI() {
         $('#setting_ai_provider').val(aiSettings.provider);
         $('#setting_gemini_key').val(aiSettings.apiKey);
         $('#setting_gemini_model').val(aiSettings.model);
+        $('#setting_auto_learn').prop('checked', aiSettings.autoLearn);
         
         if (aiSettings.provider === 'gemini') {
             $('.gemini-settings').slideDown();
@@ -112,11 +114,19 @@ function updateSettingsUI() {
 
 function saveAllSettings() {
     const tagsVal = $('#setting_custom_tags').val();
-    localStorage.setItem('html-healer-custom-tags', tagsVal);
+    
+    // Parse input tags to set
+    userCustomTags.clear();
+    tagsVal.split(',').forEach(t => {
+        const clean = t.trim().toLowerCase();
+        if (clean) userCustomTags.add(clean);
+    });
+    localStorage.setItem('html-healer-custom-tags', Array.from(userCustomTags).join(', '));
     
     aiSettings.provider = $('#setting_ai_provider').val();
     aiSettings.apiKey = $('#setting_gemini_key').val().trim();
     aiSettings.model = $('#setting_gemini_model').val();
+    aiSettings.autoLearn = $('#setting_auto_learn').is(':checked');
     
     localStorage.setItem('html-healer-ai-settings', JSON.stringify(aiSettings));
 
@@ -177,26 +187,28 @@ function applySplitPoint(startIndex) {
     });
 }
 
+// Standard tags list for reference
+const STANDARD_TAGS_LIST = new Set([
+    "a", "abbr", "address", "article", "aside", "audio", "b", "base", "bdi", "bdo", 
+    "blockquote", "body", "br", "button", "canvas", "caption", "cite", "code", "col", 
+    "colgroup", "data", "datalist", "dd", "del", "details", "dfn", "dialog", "div", 
+    "dl", "dt", "em", "embed", "fieldset", "figcaption", "figure", "footer", "form", 
+    "h1", "h2", "h3", "h4", "h5", "h6", "head", "header", "hr", "html", "i", "iframe", 
+    "img", "input", "ins", "kbd", "label", "legend", "li", "link", "main", "map", 
+    "mark", "meta", "meter", "nav", "noscript", "object", "ol", "optgroup", "option", 
+    "output", "p", "param", "picture", "pre", "progress", "q", "rp", "rt", "ruby", "s", 
+    "samp", "script", "section", "select", "small", "source", "span", "strong", "style", 
+    "sub", "summary", "sup", "svg", "table", "tbody", "td", "template", "textarea", 
+    "tfoot", "th", "thead", "time", "title", "tr", "track", "u", "ul", "var", "video", 
+    "wbr", "font", "center", "strike", "tt", "big", "think" // include think to ignore learning it
+]);
+
 function smartLineFix(fullText) {
     if (!fullText) return "";
     addLog("Starting Hybrid Code Fix...", "info");
     const lines = fullText.split('\n');
     let resultLines = [];
     
-    const standardTags = new Set([
-        "a", "abbr", "address", "article", "aside", "audio", "b", "base", "bdi", "bdo", 
-        "blockquote", "body", "br", "button", "canvas", "caption", "cite", "code", "col", 
-        "colgroup", "data", "datalist", "dd", "del", "details", "dfn", "dialog", "div", 
-        "dl", "dt", "em", "embed", "fieldset", "figcaption", "figure", "footer", "form", 
-        "h1", "h2", "h3", "h4", "h5", "h6", "head", "header", "hr", "html", "i", "iframe", 
-        "img", "input", "ins", "kbd", "label", "legend", "li", "link", "main", "map", 
-        "mark", "meta", "meter", "nav", "noscript", "object", "ol", "optgroup", "option", 
-        "output", "p", "param", "picture", "pre", "progress", "q", "rp", "rt", "ruby", "s", 
-        "samp", "script", "section", "select", "small", "source", "span", "strong", "style", 
-        "sub", "summary", "sup", "svg", "table", "tbody", "td", "template", "textarea", 
-        "tfoot", "th", "thead", "time", "title", "tr", "track", "u", "ul", "var", "video", 
-        "wbr", "font", "center", "strike", "tt", "big" 
-    ]);
     const voidTags = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
     const inlineTags = new Set(["span", "b", "i", "u", "s", "strong", "em", "font", "a", "code", "small", "big", "sub", "sup"]);
     const tagRegex = /<\/?([a-zA-Z0-9\.\-\_:]+)[^>]*>/g;
@@ -233,7 +245,7 @@ function smartLineFix(fullText) {
             const fullTag = match[0];
             const tagName = match[1].toLowerCase();
 
-            const isStandard = standardTags.has(tagName);
+            const isStandard = STANDARD_TAGS_LIST.has(tagName);
             const isCustom = userCustomTags.has(tagName);
             if (!isStandard && !isCustom) continue;
             if (voidTags.has(tagName)) continue;
@@ -286,6 +298,42 @@ function countWords(str) {
 
 // --- 2. Logic: AI Action ---
 
+// [NEW] Learning Function
+function learnTagsFromAiOutput(fixedText) {
+    if (!aiSettings.autoLearn) return;
+
+    const tagRegex = /<\/?([a-zA-Z0-9\.\-\_:]+)[^>]*>/g;
+    let match;
+    let newTagsFound = 0;
+    let learnedList = [];
+
+    while ((match = tagRegex.exec(fixedText)) !== null) {
+        const tagName = match[1].toLowerCase();
+        
+        // ถ้าเป็น tag ที่ไม่รู้จัก (ไม่อยู่ใน standard และไม่อยู่ใน custom เดิม)
+        if (!STANDARD_TAGS_LIST.has(tagName) && !userCustomTags.has(tagName)) {
+            // กรองพวกตัวเลขล้วนหรือขยะออกหน่อย (Optional)
+            if (/^[a-z][a-z0-9\.\-\_]*$/.test(tagName)) {
+                userCustomTags.add(tagName);
+                newTagsFound++;
+                learnedList.push(tagName);
+            }
+        }
+    }
+
+    if (newTagsFound > 0) {
+        // บันทึกลง LocalStorage ทันที
+        localStorage.setItem('html-healer-custom-tags', Array.from(userCustomTags).join(', '));
+        // อัปเดต UI ถ้าเปิดอยู่
+        if ($('#setting_custom_tags').length) {
+            $('#setting_custom_tags').val(Array.from(userCustomTags).join(', '));
+        }
+        
+        addLog(`🧠 Learned ${newTagsFound} new tags from AI: ${learnedList.join(', ')}`, "success");
+        toastr.success(`Learned ${newTagsFound} new tags! Code Fix is now smarter.`);
+    }
+}
+
 async function callGeminiAPI(prompt, apiKey) {
     if (!apiKey) throw new Error("Missing Gemini API Key in settings.");
     
@@ -324,7 +372,6 @@ async function callGeminiAPI(prompt, apiKey) {
     }
 }
 
-// ฟังก์ชันกลางสำหรับเรียก AI แก้ไข (ใช้ได้ทั้ง Editor และ Quick Fix)
 async function runAiFixLogic(textToFix) {
     if (!textToFix || !textToFix.trim()) throw new Error("No text to fix.");
 
@@ -355,6 +402,10 @@ ${textToFix}
     
     let cleanFixed = fixedText.trim();
     cleanFixed = cleanFixed.replace(/^```html\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '');
+    
+    // [NEW] Trigger Learning
+    learnTagsFromAiOutput(cleanFixed);
+    
     return cleanFixed;
 }
 
@@ -403,8 +454,8 @@ function showQuickFixPopup() {
                 <button id="qf-btn-ai" class="menu_button" style="padding:15px; text-align:left; display:flex; align-items:center; gap:10px; border:1px solid var(--smart-theme-color);">
                     <i class="fa-solid fa-robot" style="font-size:1.2em; color:var(--smart-theme-color);"></i>
                     <div>
-                        <div style="font-weight:bold; color:var(--smart-theme-color);">AI Fix</div>
-                        <div style="font-size:0.8em; opacity:0.6;">Smarter, uses ${aiSettings.provider === 'gemini' ? aiSettings.model : 'Main API'}</div>
+                        <div style="font-weight:bold; color:var(--smart-theme-color);">AI Fix (Auto-Learn)</div>
+                        <div style="font-size:0.8em; opacity:0.6;">Smarter + Learns new tags automatically</div>
                     </div>
                 </button>
             </div>
@@ -438,7 +489,6 @@ async function runQuickFix(mode) {
     const hasThinking = /<think|&lt;think|&lt;\/think|<\/think>/i.test(originalText);
 
     if (mode === 'code') {
-        // Code Fix Mode
         if (hasThinking) {
             toastr.info("Thinking detected! Opening editor for safety.");
             addLog("QuickFix(Code): Thinking detected. Opening editor.", "warn");
@@ -456,11 +506,9 @@ async function runQuickFix(mode) {
             }
         }
     } else {
-        // AI Fix Mode
         toastr.info("AI is fixing message...", "Please wait");
         addLog("QuickFix(AI): Starting...", "info");
         try {
-            // ส่งไปทั้งข้อความเลย (AI จะจัดการ Think tag ตาม Prompt ที่สั่งไว้)
             const fixedText = await runAiFixLogic(originalText);
             if (fixedText && fixedText !== originalText) {
                 chat[lastIndex].mes = fixedText;
@@ -670,6 +718,7 @@ function loadSettings() {
     const modelOptions = [
         "gemini-2.5-flash",
         "gemini-2.5-pro"
+       
     ].map(m => `<option value="${m}">${m}</option>`).join('');
 
     $('#extensions_settings').append(`
@@ -687,6 +736,11 @@ function loadSettings() {
                         <textarea id="setting_custom_tags" rows="2" 
                             style="width:100%; margin-top:5px; background:rgba(0,0,0,0.2); color:#fff; border:1px solid #444; border-radius:5px; padding:5px;"
                             placeholder="e.g. scrollborad.zeal, neon-box"></textarea>
+                    </div>
+
+                    <div style="margin-bottom:10px; display:flex; align-items:center; gap:8px;">
+                        <input type="checkbox" id="setting_auto_learn" style="width:16px; height:16px; cursor:pointer;">
+                        <label for="setting_auto_learn" style="cursor:pointer; font-size:0.9em;">Auto-learn tags from AI</label>
                     </div>
 
                     <div style="margin: 10px 0;">
