@@ -31,7 +31,6 @@ function saveCustomTags(str) {
 let initialSegments = []; 
 let currentSegments = []; 
 
-// แยกส่วนประกอบ
 function parseSegments(rawText) {
     if (!rawText) return [];
     let cleanText = rawText
@@ -47,7 +46,6 @@ function parseSegments(rawText) {
         let text = block.trim();
         const startsWithComplexTag = /^<[^/](?!br|i|b|em|strong|span|p)[^>]*>?/i.test(text);
         const hasCloseThink = /<\/think>|Close COT|End of thought/i.test(text);
-        
         let assignedType = 'story'; 
 
         if (!hasFoundStoryStart) {
@@ -80,11 +78,14 @@ function applySplitPoint(startIndex) {
     });
 }
 
-// ฟังก์ชันซ่อม HTML (Stack-Based Logic)
-function whitelistFix(text) {
-    if (!text) return "";
-
-    // 1. Standard Tags
+// --- HYBRID FIX LOGIC (Inline + Block Indent) ---
+function smartLineFix(fullText) {
+    if (!fullText) return "";
+    
+    const lines = fullText.split('\n');
+    let resultLines = [];
+    
+    // 1. Setup Tag Lists
     const standardTags = new Set([
         "a", "abbr", "address", "article", "aside", "audio", "b", "base", "bdi", "bdo", 
         "blockquote", "body", "br", "button", "canvas", "caption", "cite", "code", "col", 
@@ -100,64 +101,126 @@ function whitelistFix(text) {
         "wbr", "font", "center", "strike", "tt", "big" 
     ]);
 
-    // 2. Void Tags (ไม่ต้องปิด)
     const voidTags = new Set([
         "area", "base", "br", "col", "embed", "hr", "img", "input", 
         "link", "meta", "param", "source", "track", "wbr"
     ]);
 
+    // Tag ที่มักจะเป็น Inline (ควรปิดในบรรทัดเดียว)
+    const inlineTags = new Set(["span", "b", "i", "u", "s", "strong", "em", "font", "a", "code", "small", "big", "sub", "sup"]);
+
     const tagRegex = /<\/?([a-zA-Z0-9\.\-\_:]+)[^>]*>/g;
     
-    // [TMP ARRAY] นี่คือ "tmp array" ที่คุณพูดถึง (Stack)
-    // มันจะเก็บลำดับแท็กที่เปิดค้างไว้ตามลำดับเวลา (First-In, Last-Out)
-    // เช่น เปิด <box> -> stack = ['box']
-    // เปิด <title> -> stack = ['box', 'title']
-    // เวลาแก้ มันจะไล่ย้อนจากหลังมาหน้า คือปิด title ก่อน แล้วค่อยปิด box
-    let stack = []; 
-    
-    let match;
-    
-    while ((match = tagRegex.exec(text)) !== null) {
-        const fullTag = match[0];
-        const tagName = match[1].toLowerCase();
+    // Stack สำหรับ Block Tags (div, style, custom...) ที่ข้ามบรรทัดได้
+    let blockStack = []; // { tag: "div", indent: 0 }
 
-        // เช็คว่าเป็น Standard หรือ Custom (ที่โหลดจากช่องกรอก) หรือไม่
-        const isStandard = standardTags.has(tagName);
-        const isCustom = userCustomTags.has(tagName);
+    for (let i = 0; i < lines.length; i++) {
+        let line = lines[i];
+        
+        // ถ้าเป็นบรรทัดว่าง ให้ข้ามการคำนวณ Stack แต่เก็บไว้
+        if (!line.trim()) {
+            resultLines.push(line);
+            continue;
+        }
 
-        if (!isStandard && !isCustom) continue; 
-        if (voidTags.has(tagName)) continue;
+        const currentIndent = line.search(/\S|$/);
+        
+        // A. ตรวจสอบการปิด Block Stack ตาม Indentation
+        // ถ้า Indent ถอยกลับมา (น้อยกว่าหรือเท่ากับตัวล่าสุดใน Stack) -> ปิด Tag นั้นซะ
+        let autoClosedBlocks = "";
+        while (blockStack.length > 0) {
+            const last = blockStack[blockStack.length - 1];
+            // เงื่อนไข: Indent ปัจจุบัน <= Indent ของ Tag แม่ -> แสดงว่าจบ Scope แล้ว
+            if (currentIndent <= last.indent) {
+                autoClosedBlocks += `</${last.tag}>`;
+                blockStack.pop();
+            } else {
+                break;
+            }
+        }
+        
+        // แทรก Tag ปิดของ Block ที่จบแล้ว (แทรกก่อนเริ่มบรรทัดนี้ หรือท้ายบรรทัดก่อนหน้า)
+        if (autoClosedBlocks) {
+            // หาบรรทัดก่อนหน้าที่มีเนื้อหา
+            let prevIdx = resultLines.length - 1;
+            while(prevIdx >= 0 && !resultLines[prevIdx].trim()) prevIdx--;
+            
+            if (prevIdx >= 0) {
+                resultLines[prevIdx] += autoClosedBlocks;
+            } else {
+                line = autoClosedBlocks + line;
+            }
+        }
 
-        if (fullTag.startsWith("</")) {
-            // เจอตัวปิด: วนหาตัวเปิดล่าสุดที่ตรงกันใน Stack
-            // ไล่ย้อนจากปลายแถว (ลูก) ไปหาหัวแถว (แม่)
-            let foundIndex = -1;
-            for (let i = stack.length - 1; i >= 0; i--) {
-                if (stack[i] === tagName) {
-                    foundIndex = i;
-                    break;
+        // B. ประมวลผล Tag ในบรรทัดนี้
+        let lineStack = []; // Stack ชั่วคราวสำหรับในบรรทัด (ไว้เช็ค Inline)
+        let match;
+        tagRegex.lastIndex = 0;
+
+        while ((match = tagRegex.exec(line)) !== null) {
+            const fullTag = match[0];
+            const tagName = match[1].toLowerCase();
+
+            const isStandard = standardTags.has(tagName);
+            const isCustom = userCustomTags.has(tagName);
+            if (!isStandard && !isCustom) continue;
+            if (voidTags.has(tagName)) continue;
+
+            if (fullTag.startsWith("</")) {
+                // เจอตัวปิด
+                // 1. ลองหาใน Line Stack (Inline) ก่อน
+                let foundInLine = -1;
+                for (let k = lineStack.length - 1; k >= 0; k--) {
+                    if (lineStack[k] === tagName) { foundInLine = k; break; }
+                }
+
+                if (foundInLine !== -1) {
+                    lineStack.splice(foundInLine, lineStack.length - foundInLine);
+                } else {
+                    // 2. ถ้าไม่เจอใน Line, ลองไปหาใน Block Stack
+                    let foundInBlock = -1;
+                    for (let k = blockStack.length - 1; k >= 0; k--) {
+                        if (blockStack[k].tag === tagName) { foundInBlock = k; break; }
+                    }
+                    if (foundInBlock !== -1) {
+                        blockStack.splice(foundInBlock, blockStack.length - foundInBlock);
+                    }
+                }
+
+            } else {
+                // เจอตัวเปิด
+                if (inlineTags.has(tagName)) {
+                    // ถ้าเป็น Inline Tag ให้ใส่ใน Line Stack (คาดหวังว่าจะปิดในบรรทัดนี้)
+                    lineStack.push(tagName);
+                } else {
+                    // ถ้าเป็น Block Tag (div, custom) ให้ใส่ Block Stack
+                    blockStack.push({ tag: tagName, indent: currentIndent });
                 }
             }
-            if (foundIndex !== -1) {
-                // ถ้าเจอคู่ แสดงว่าแท็กนี้ถูกปิดถูกต้องแล้ว ลบออกจาก Stack
-                // ลบตัวมันเองและลูกหลานที่อาจจะค้างอยู่ (ถ้ามี) ออกไปด้วย
-                stack.splice(foundIndex, stack.length - foundIndex);
-            }
+        }
+
+        // C. จบบรรทัด: เคลียร์ Line Stack (Inline Tags ที่ลืมปิด)
+        // ถ้าเหลือค้างใน Line Stack แปลว่าลืมปิด -> ปิดให้เลยท้ายบรรทัดนี้
+        if (lineStack.length > 0) {
+            const closingInline = lineStack.reverse().map(t => `</${t}>`).join("");
+            line += closingInline;
+        }
+
+        resultLines.push(line);
+    }
+
+    // D. จบไฟล์: เคลียร์ Block Stack ที่เหลือ (Block Tags ที่ลืมปิดท้ายสุด)
+    if (blockStack.length > 0) {
+        const closingBlocks = blockStack.reverse().map(t => `</${t.tag}>`).join("");
+        // แปะท้ายสุด
+        if (resultLines.length > 0) {
+            resultLines[resultLines.length - 1] += closingBlocks;
         } else {
-            // เจอตัวเปิด: ใส่ Stack รอไว้ (เป็นลูกคนล่าสุด)
-            stack.push(tagName);
+            resultLines.push(closingBlocks);
         }
     }
 
-    // [FINAL FIX] ส่วนนี้คือการไล่ปิดแท็กที่ยังค้างอยู่ใน Stack
-    // stack.reverse() จะกลับด้าน Array เพื่อให้ปิดจาก "ลูก" ไปหา "แม่"
-    if (stack.length > 0) {
-        const closingTags = stack.reverse().map(t => `</${t}>`).join("");
-        // แปะต่อท้ายข้อความเดิม
-        return text + "\n" + closingTags;
-    }
-
-    return text;
+    return resultLines.join('\n');
 }
 
 function countWords(str) {
@@ -181,12 +244,12 @@ async function performSmartQuickFix() {
         toastr.info("Thinking detected! Opening editor...");
         openSplitEditor(); 
     } else {
-        const fixedText = whitelistFix(originalText);
+        const fixedText = smartLineFix(originalText);
         if (fixedText !== originalText) {
             chat[lastIndex].mes = fixedText;
             await context.saveChat();
             await context.reloadCurrentChat();
-            toastr.success("HTML Fixed!");
+            toastr.success("HTML Fixed (Hybrid Mode)!");
         } else {
             toastr.success("HTML looks good.");
         }
@@ -300,9 +363,9 @@ function openSplitEditor() {
 
     $('#btn-heal-html').on('click', () => {
         let val = $('#editor-main').val();
-        let fixed = whitelistFix(val);
+        let fixed = smartLineFix(val);
         $('#editor-main').val(fixed).trigger('input');
-        toastr.success("Tags Fixed!");
+        toastr.success("Tags Fixed (Hybrid)!");
     });
 
     $('#editor-cot, #editor-main').on('input', updateCounts);
@@ -371,11 +434,8 @@ window.copyText = (id) => {
 
 function loadSettings() {
     if ($('.html-healer-settings').length > 0) return;
-    
-    // โหลด Tags จาก localStorage
     loadCustomTags();
 
-    // สร้าง UI
     $('#extensions_settings').append(`
         <div class="html-healer-settings">
             <div class="inline-drawer">
@@ -412,7 +472,6 @@ function loadSettings() {
     $('#html-healer-open-split').on('click', openSplitEditor);
     $('#html-healer-quick-fix').on('click', performSmartQuickFix);
     
-    // ปุ่ม Save Tags
     $('#btn_save_tags').on('click', () => {
         const val = $('#setting_custom_tags').val();
         saveCustomTags(val);
