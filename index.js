@@ -6,9 +6,16 @@ const extensionName = "html-healer";
 let initialSegments = []; 
 let currentSegments = []; 
 
+const authorConfig = {
+    name: "Zealllll",
+    avatarUrl: "scripts/extensions/third-party/SillyTavern-FixHTML/avatar.png"
+};
+
 // แยกส่วนประกอบ: Thinking / UI / Story
 function parseSegments(rawText) {
-    if (!rawText) return [];
+    if (!rawText) return { segments: [], isThinkBroken: false };
+    
+    // แปลง escape characters กลับมาเป็น tag จริงก่อนประมวลผล
     let cleanText = rawText
         .replace(/&lt;think&gt;/gi, "<think>")
         .replace(/&lt;\/think&gt;/gi, "</think>");
@@ -23,7 +30,7 @@ function parseSegments(rawText) {
     let state = 'story'; 
     let segments = [];
     
-    // Regex จับ UI (จะถูกข้ามถ้า Think พัง)
+    // Regex จับ UI (เพิ่ม pre/code เข้ามาเผื่อเป็นโค้ด)
     const uiStartRegex = /^<(div|table|style|aside|section|main|header|footer|nav|article|details|summary|code|pre)/i;
     
     rawBlocks.forEach((line, index) => {
@@ -49,6 +56,7 @@ function parseSegments(rawText) {
             }
         }
 
+        // กรณีจบ Think ในบรรทัดเดียว
         if (state === 'think' && /<\/think>/i.test(text)) {
              segments.push({ id: index, text: line, type: 'think' });
              state = 'story';
@@ -61,16 +69,18 @@ function parseSegments(rawText) {
     return { segments, isThinkBroken };
 }
 
-// --- [NEW LOGIC] Advanced HTML Fixer ---
-// รองรับ Custom Tags และเช็ค Nesting (Parent-Child)
+// --- [UPDATED] Advanced HTML Fixer ---
+// รองรับ: name.subname, colon:tags, nesting check
 function advancedHtmlFix(text) {
     if (!text) return "";
 
-    // 1. Regex จับ Tag ทั้งหมด (Custom Tag อะไรก็ได้ที่ขึ้นต้นด้วยตัวอักษร)
-    // capture groups: 1=slash(if close), 2=tagName, 3=attributes, 4=self-closing slash
-    const tagRegex = /<(\/?)([a-zA-Z0-9\-\_]+)([^>]*?)(\/?)>/g;
+    // Regex ใหม่: รองรับ a-z, 0-9, -, _, . (จุด), : (โคลอน)
+    // Group 1: Slash (ถ้าเป็น tag ปิด)
+    // Group 2: Tag Name (เช่น char.emotion)
+    // Group 3: Attributes
+    // Group 4: Self-closing slash
+    const tagRegex = /<(\/?)([a-zA-Z0-9\-\_\.\:]+)([^>]*?)(\/?)>/g;
     
-    // Void Tags ที่ไม่ต้องมีตัวปิด (มาตรฐาน HTML5)
     const voidTags = new Set([
         "area", "base", "br", "col", "embed", "hr", "img", "input", 
         "link", "meta", "param", "source", "track", "wbr"
@@ -84,71 +94,55 @@ function advancedHtmlFix(text) {
     while ((match = tagRegex.exec(text)) !== null) {
         const fullTag = match[0];
         const isClose = match[1] === "/";
-        const tagName = match[2].toLowerCase(); // บังคับตัวเล็กเพื่อนับ stack ง่ายๆ
+        const tagName = match[2].toLowerCase(); 
         const isSelfClosing = match[4] === "/";
         const offset = match.index;
 
-        // เติมข้อความก่อนหน้า Tag นี้เข้าผลลัพธ์
         result += text.substring(lastIndex, offset);
         lastIndex = tagRegex.lastIndex;
 
-        // กรณี Void Tag หรือ Self-Closing (<br>, <img ... />, <custom />) -> ใส่เลย ไม่ต้องลง Stack
         if (voidTags.has(tagName) || isSelfClosing) {
             result += fullTag;
             continue;
         }
 
         if (!isClose) {
-            // --- OPEN TAG ---
-            // ใส่ลง Stack รอตัวปิด
+            // <open> -> Push Stack
             stack.push(tagName);
             result += fullTag;
         } else {
-            // --- CLOSE TAG ---
-            // เช็คว่าตรงกับตัวบนสุดของ Stack ไหม?
+            // </close>
             if (stack.length > 0) {
                 const top = stack[stack.length - 1];
                 
                 if (top === tagName) {
-                    // ตรงกัน -> คู่สมบูรณ์ -> Pop ออก
+                    // Match! -> Pop
                     stack.pop();
                     result += fullTag;
                 } else {
-                    // ไม่ตรงกัน! (Nesting Error หรือ Missing Close)
-                    // ตรวจสอบว่ามี Tag นี้อยู่ลึกกว่านี้ไหม?
+                    // Mismatch! (Nesting Error)
                     const foundIndex = stack.lastIndexOf(tagName);
                     
                     if (foundIndex !== -1) {
-                        // เจอ! แสดงว่าตัวลูกๆ ก่อนหน้านี้ลืมปิด
-                        // วิธีแก้: ปิดตัวลูกๆ ให้หมดก่อน จนถึงตัวนี้
-                        // เช่น stack=[div, span], เจอ </div> -> ต้องปิด span ก่อน
-                        
+                        // เจอคู่อยู่ลึกกว่านี้ -> ปิดลูกๆ ให้หมดก่อน
                         while (stack.length > foundIndex + 1) {
                             const unclosed = stack.pop();
-                            result += `</${unclosed}>`; // Auto-close child
+                            result += `</${unclosed}>`; 
                         }
-                        
-                        // พอปิดลูกหมดแล้ว ก็ปิดตัวแม่ (ตัวปัจจุบัน)
-                        stack.pop();
+                        stack.pop(); // ปิดตัวมันเอง
                         result += fullTag;
                     } else {
-                        // ไม่เจอใน Stack เลย (Orphan Close Tag) -> ส่วนเกิน
-                        // วิธีแก้: ไม่เติม Tag ปิดนี้ลงไป (ลบทิ้ง) หรือปล่อยผ่าน text ธรรมดา
-                        // ในที่นี้เลือก "ลบทิ้ง" เพื่อความสะอาดของ HTML
+                        // ไม่เจอคู่เลย (Orphan Close Tag) -> ลบทิ้งเพื่อความปลอดภัย
                         // result += ""; 
                     }
                 }
-            } else {
-                // Stack ว่างเปล่า แต่เจอ Tag ปิด -> ส่วนเกิน
-                // result += "";
             }
         }
     }
 
-    // เติมข้อความส่วนที่เหลือหลัง Tag สุดท้าย
     result += text.substring(lastIndex);
 
-    // ปิด Stack ที่เหลือให้หมด (Unclosed Tags at the end)
+    // ปิดตกค้าง (Unclosed at end)
     while (stack.length > 0) {
         const unclosed = stack.pop();
         result += `</${unclosed}>`;
@@ -172,59 +166,72 @@ async function performSmartQuickFix() {
     const lastIndex = chat.length - 1;
     const originalText = chat[lastIndex].mes;
 
-    const hasThinking = /<think|&lt;think/i.test(originalText);
-    const hasUI = /<div|<table|<style/i.test(originalText);
-
-    // ถ้ามี Think หรือ UI เยอะๆ ให้เตือน user ก่อน (แต่ถ้า user มั่นใจกดอีกทีก็แก้ได้)
-    // หรือจะให้แก้เลย? ตาม Logic เดิมคือถ้าซับซ้อนให้เปิด Editor แต่ถ้าจะ Auto ก็จัด advancedHtmlFix เลย
+    // ตรวจสอบ Think ก่อน
+    const hasOpenThink = /<think>/i.test(originalText);
+    const hasCloseThink = /<\/think>/i.test(originalText);
     
+    // เงื่อนไข: ถ้า Think พัง (มีเปิด ไม่มีปิด) -> บังคับเปิด Editor
+    if (hasOpenThink && !hasCloseThink) {
+        toastr.warning("Think tag is broken! Opening editor...", "Safety First");
+        openBlockEditor(); 
+        return;
+    }
+
+    // ถ้า Think ปกติ -> Auto Fix เลย
     const fixedText = advancedHtmlFix(originalText);
     if (fixedText !== originalText) {
         chat[lastIndex].mes = fixedText;
         await context.saveChat();
         await context.reloadCurrentChat();
-        toastr.success("HTML Fixed (Advanced Mode)!");
+        toastr.success("HTML & Tags Fixed!");
     } else {
-        toastr.success("HTML looks perfect.");
+        toastr.success("Everything looks perfect ✨");
     }
 }
 
-// --- 3. UI Builder ---
+// --- 3. UI Builder (Cute & Safe) ---
 let targetMessageId = null;
 
-const authorConfig = {
-    name: "Zealllll",
-    avatarUrl: "scripts/extensions/third-party/SillyTavern-FixHTML/avatar.png"
-};
+// Template สำหรับ Header ที่มี Author Pill (ใช้ซ้ำได้)
+const getHeaderHtml = (title, icon) => `
+    <div class="healer-header" style="background: linear-gradient(90deg, var(--lavender-dark, #2a2730) 0%, rgba(42,39,48,0.9) 100%);">
+        <div class="header-brand">
+            <div class="header-icon" style="color: #ffb7b2;">${icon}</div>
+            <div class="header-text"><span class="title" style="color: #fff;">${title}</span></div>
+        </div>
+        <div class="header-controls">
+            <div class="author-pill" style="border: 1px solid rgba(255,183,178,0.3); background: rgba(0,0,0,0.2);">
+                <img src="${authorConfig.avatarUrl}" onerror="this.style.display='none'" style="border: 1px solid #ffb7b2;">
+                <span class="author-name" style="color: #ffb7b2;">${authorConfig.name}</span>
+            </div>
+            
+            <div class="close-btn" onclick="$('#html-healer-modal').remove()" style="margin-left:5px;">
+                <i class="fa-solid fa-xmark"></i>
+            </div>
+        </div>
+    </div>
+`;
 
-// >>> FEATURE: "Split" (Highlight & Fix) <<<
-// ชื่อฟังก์ชันเปลี่ยนตามหน้าที่ แต่ UI จะเรียกว่า "Split" ตามที่คุณขอ
+// >>> Feature: Split (Highlight & Fix) <<<
 function openHighlightFixer() {
     const context = SillyTavern.getContext();
     const chat = context.chat;
-    if (!chat || chat.length === 0) return toastr.warning("No messages to fix.");
+    if (!chat || chat.length === 0) return toastr.warning("No messages.");
     targetMessageId = chat.length - 1;
     const originalText = chat[targetMessageId].mes;
 
     const modalHtml = `
     <div id="html-healer-modal" class="html-healer-overlay">
-        <div class="html-healer-box">
-            <div class="healer-header">
-                <div class="header-brand">
-                    <div class="header-icon"><i class="fa-solid fa-highlighter"></i></div>
-                    <div class="header-text"><span class="title">Split (Highlight Fix)</span></div>
-                </div>
-                <div class="header-controls">
-                     <div class="close-btn" onclick="$('#html-healer-modal').remove()"><i class="fa-solid fa-xmark"></i></div>
-                </div>
-            </div>
+        <div class="html-healer-box" style="border: 1px solid rgba(166,177,225,0.4); box-shadow: 0 0 20px rgba(166,177,225,0.15);">
+            ${getHeaderHtml("Split (Highlight)", '<i class="fa-solid fa-highlighter"></i>')}
+            
             <div class="healer-body">
                 <div class="view-section active">
                     <div class="editor-group main-group">
                         <div class="group-toolbar">
-                            <span class="label"><i class="fa-solid fa-i-cursor"></i> Highlight text to fix custom tags & nesting</span>
+                            <span class="label" style="color:#a6b1e1;"><i class="fa-solid fa-i-cursor"></i> Highlight broken part</span>
                             <div class="toolbar-actions">
-                                <button class="action-btn" id="btn-heal-selection" style="background:var(--smart-theme-color, #4caf50); color:#fff; border:none;">
+                                <button class="action-btn" id="btn-heal-selection" style="background:#ffb7b2; color:#222; border:none; font-weight:bold;">
                                     <i class="fa-solid fa-wand-magic-sparkles"></i> Fix Selection
                                 </button>
                             </div>
@@ -234,7 +241,9 @@ function openHighlightFixer() {
                 </div>
             </div>
             <div class="healer-footer">
-                <button id="btn-save-targeted" class="save-button"><i class="fa-solid fa-floppy-disk"></i> Save Changes</button>
+                <button id="btn-save-targeted" class="save-button" style="background:#a6b1e1; color:#222;">
+                    <i class="fa-solid fa-floppy-disk"></i> Save Changes
+                </button>
             </div>
         </div>
     </div>`;
@@ -244,13 +253,11 @@ function openHighlightFixer() {
         const textarea = document.getElementById('editor-targeted');
         const start = textarea.selectionStart;
         const end = textarea.selectionEnd;
-        if (start === end) return toastr.warning("Please highlight the HTML code first!");
+        if (start === end) return toastr.warning("Please highlight code first!");
         
         const fullText = textarea.value;
         const selectedText = fullText.substring(start, end);
-        
-        // ใช้ Logic ใหม่: Custom Tags + Nesting Check
-        const fixedSegment = advancedHtmlFix(selectedText);
+        const fixedSegment = advancedHtmlFix(selectedText); // ใช้ logic ใหม่
         
         if (fixedSegment === selectedText) {
             toastr.info("Selection looks valid."); return;
@@ -259,7 +266,7 @@ function openHighlightFixer() {
         textarea.value = fullText.substring(0, start) + fixedSegment + fullText.substring(end);
         textarea.setSelectionRange(start, start + fixedSegment.length);
         textarea.focus();
-        toastr.success("Fixed selected area!");
+        toastr.success("Fixed!");
     });
 
     $('#btn-save-targeted').on('click', async () => {
@@ -270,11 +277,11 @@ function openHighlightFixer() {
     });
 }
 
-// >>> FEATURE: "Editor" (Block/Segment Editor) <<<
+// >>> Feature: Editor (Blocks) <<<
 function openBlockEditor() {
     const context = SillyTavern.getContext();
     const chat = context.chat;
-    if (!chat || chat.length === 0) return toastr.warning("No messages to fix.");
+    if (!chat || chat.length === 0) return toastr.warning("No messages.");
 
     targetMessageId = chat.length - 1;
     const originalText = chat[targetMessageId].mes;
@@ -287,21 +294,29 @@ function openBlockEditor() {
     currentSegments = JSON.parse(JSON.stringify(initialSegments));
     
     if (isThinkBroken) {
-        toastr.error("Warning: Unclosed <think> detected!", "UI Detection Disabled");
+        toastr.error("Warning: Unclosed <think> detected!", "Parsing Paused");
     }
 
     const modalHtml = `
     <div id="html-healer-modal" class="html-healer-overlay">
-        <div class="html-healer-box">
+        <div class="html-healer-box" style="border: 1px solid rgba(166,177,225,0.4); box-shadow: 0 0 20px rgba(166,177,225,0.15);">
             
-            <div class="healer-header">
+            <div class="healer-header" style="background: linear-gradient(90deg, var(--lavender-dark, #2a2730) 0%, rgba(42,39,48,0.9) 100%);">
                 <div class="header-brand">
-                    <div class="header-icon"><i class="fa-solid fa-layer-group"></i></div>
-                    <div class="header-text"><span class="title">Editor (Blocks)</span></div>
+                    <div class="header-icon" style="color: #ffb7b2;"><i class="fa-solid fa-layer-group"></i></div>
+                    <div class="header-text"><span class="title" style="color: #fff;">Editor (Blocks)</span></div>
                 </div>
                 <div class="header-controls">
-                     <button class="reset-btn" id="btn-reset-split" title="Reset"><i class="fa-solid fa-rotate-left"></i></button>
-                     <div class="close-btn" onclick="$('#html-healer-modal').remove()"><i class="fa-solid fa-xmark"></i></div>
+                    <button class="reset-btn" id="btn-reset-split" title="Reset" style="margin-right:5px;"><i class="fa-solid fa-rotate-left"></i></button>
+                    
+                    <div class="author-pill" style="border: 1px solid rgba(255,183,178,0.3); background: rgba(0,0,0,0.2);">
+                        <img src="${authorConfig.avatarUrl}" onerror="this.style.display='none'" style="border: 1px solid #ffb7b2;">
+                        <span class="author-name" style="color: #ffb7b2;">${authorConfig.name}</span>
+                    </div>
+
+                    <div class="close-btn" onclick="$('#html-healer-modal').remove()" style="margin-left:5px;">
+                        <i class="fa-solid fa-xmark"></i>
+                    </div>
                 </div>
             </div>
 
@@ -309,35 +324,35 @@ function openBlockEditor() {
                 <div class="segment-scroller" id="segment-container"></div>
                 <div class="picker-instruction">
                     ${isThinkBroken 
-                        ? '<span style="color:#e06c75;"><i class="fa-solid fa-triangle-exclamation"></i> Fix <think> tag first.</span>' 
-                        : '<i class="fa-solid fa-arrow-pointer"></i> Toggle: <b>Story -> Think -> UI</b>'
+                        ? '<span style="color:#ffb7b2;"><i class="fa-solid fa-triangle-exclamation"></i> Please close &lt;think&gt; first.</span>' 
+                        : '<i class="fa-solid fa-arrow-pointer"></i> Toggle: <b>Story → Think → UI</b>'
                     }
                 </div>
             </div>
             
             <div class="healer-body">
                 <div id="view-editor" class="view-section active">
-                    <div class="editor-group think-group">
+                    <div class="editor-group think-group" style="border-color: rgba(166, 177, 225, 0.3);">
                         <div class="group-toolbar">
-                            <span class="label"><i class="fa-solid fa-brain"></i> Thinking</span>
+                            <span class="label" style="color:#a6b1e1;"><i class="fa-solid fa-brain"></i> Thinking</span>
                             <span class="word-count" id="count-cot">0w</span>
                         </div>
-                        <textarea id="editor-cot" placeholder="<think> content..."></textarea>
+                        <textarea id="editor-cot" placeholder="<think>...</think>"></textarea>
                     </div>
 
-                    <div class="editor-group ui-group" style="border-color: #e06c75;">
-                        <div class="group-toolbar" style="background: rgba(224, 108, 117, 0.1);">
-                            <span class="label" style="color: #e06c75;"><i class="fa-solid fa-code"></i> UI / HTML</span>
+                    <div class="editor-group ui-group" style="border-color: #ffb7b2;">
+                        <div class="group-toolbar" style="background: rgba(255, 183, 178, 0.1);">
+                            <span class="label" style="color: #ffb7b2;"><i class="fa-solid fa-code"></i> UI / Tags</span>
                             <div class="toolbar-actions">
-                                <button class="action-btn" id="btn-heal-ui"><i class="fa-solid fa-wand-magic-sparkles"></i> Fix UI</button>
+                                <button class="action-btn" id="btn-heal-ui" style="border-color:#ffb7b2; color:#ffb7b2;"><i class="fa-solid fa-wand-magic-sparkles"></i> Fix UI</button>
                             </div>
                         </div>
-                        <textarea id="editor-ui" placeholder="<div>...</div> content..." style="color:#ffccbc;"></textarea>
+                        <textarea id="editor-ui" placeholder="<custom.tag>...</custom.tag>" style="color:#ffccbc;"></textarea>
                     </div>
 
-                    <div class="editor-group main-group">
+                    <div class="editor-group main-group" style="border-color: rgba(152, 195, 121, 0.3);">
                         <div class="group-toolbar">
-                            <span class="label"><i class="fa-solid fa-comments"></i> Story</span>
+                            <span class="label" style="color:#98c379;"><i class="fa-solid fa-comments"></i> Story</span>
                             <span class="word-count" id="count-main">0w</span>
                         </div>
                         <textarea id="editor-main" placeholder="Story content..."></textarea>
@@ -346,8 +361,8 @@ function openBlockEditor() {
             </div>
 
             <div class="healer-footer">
-                <button id="btn-save-split" class="save-button">
-                    <span class="btn-content"><i class="fa-solid fa-floppy-disk"></i> Merge & Save</span>
+                <button id="btn-save-split" class="save-button" style="background:#a6b1e1; color:#222;">
+                    <i class="fa-solid fa-floppy-disk"></i> Merge & Save
                 </button>
             </div>
         </div>
@@ -379,7 +394,6 @@ function openBlockEditor() {
 
     $('#btn-heal-ui').on('click', () => {
         let val = $('#editor-ui').val();
-        // ใช้ Logic ใหม่ Advanced Fix
         let fixed = advancedHtmlFix(val);
         $('#editor-ui').val(fixed).trigger('input');
         toastr.success("Fixed UI HTML!");
@@ -394,6 +408,7 @@ function openBlockEditor() {
         
         let parts = [];
         if (cot) {
+            // ฉลาด: ถ้า user ลืมใส่ tag think ระบบเติมให้เลยตอนเซฟ
             if (!/^<think>/i.test(cot)) cot = `<think>\n${cot}`;
             if (!/<\/think>$/i.test(cot)) cot = `${cot}\n</think>`;
             parts.push(cot);
@@ -420,11 +435,18 @@ function renderSegments() {
     currentSegments.forEach(seg => {
         let icon = '<i class="fa-solid fa-comment"></i>';
         let colorClass = 'type-story';
-        if (seg.type === 'think') { icon = '<i class="fa-solid fa-brain"></i>'; colorClass = 'type-think'; }
-        if (seg.type === 'ui') { icon = '<i class="fa-solid fa-code"></i>'; colorClass = 'type-ui'; } 
-        
-        let style = seg.type === 'ui' ? 'border-color: #e06c75; background: rgba(224, 108, 117, 0.1);' : '';
+        let style = '';
 
+        if (seg.type === 'think') { 
+            icon = '<i class="fa-solid fa-brain"></i>'; 
+            colorClass = 'type-think'; 
+        }
+        if (seg.type === 'ui') { 
+            icon = '<i class="fa-solid fa-code"></i>'; 
+            colorClass = 'type-ui'; 
+            style = 'border-color: #ffb7b2; background: rgba(255, 183, 178, 0.1);';
+        } 
+        
         container.append(`
             <div class="segment-block ${colorClass}" data-id="${seg.id}" style="${style}">
                 <div class="seg-icon">${icon}</div>
@@ -467,15 +489,15 @@ function loadSettings() {
                     <div class="styled_description_block">Editor by ${authorConfig.name}</div>
                     <div style="display:flex; gap:5px; margin-top:5px;">
                         
-                        <div id="html-healer-quick-fix" class="menu_button" style="flex:1; background-color: var(--smart-theme-color, #4caf50);">
+                        <div id="html-healer-quick-fix" class="menu_button" style="flex:1; background-color: var(--smart-theme-color, #4caf50);" title="Fix HTML tags (checks broken think first)">
                             <i class="fa-solid fa-wand-magic-sparkles"></i> Auto
                         </div>
 
-                        <div id="html-healer-open-editor" class="menu_button" style="flex:1;">
+                        <div id="html-healer-open-editor" class="menu_button" style="flex:1;" title="Separate Think / UI / Story">
                             <i class="fa-solid fa-layer-group"></i> Editor
                         </div>
 
-                        <div id="html-healer-open-split" class="menu_button" style="flex:1;">
+                        <div id="html-healer-open-split" class="menu_button" style="flex:1;" title="Highlight specific text to fix">
                             <i class="fa-solid fa-highlighter"></i> Split
                         </div>
 
@@ -489,8 +511,8 @@ function loadSettings() {
     `);
     
     $('#html-healer-quick-fix').on('click', performSmartQuickFix);
-    $('#html-healer-open-editor').on('click', openBlockEditor);   // Editor = Block View
-    $('#html-healer-open-split').on('click', openHighlightFixer); // Split = Highlight View
+    $('#html-healer-open-editor').on('click', openBlockEditor);
+    $('#html-healer-open-split').on('click', openHighlightFixer);
 }
 
 jQuery(async () => {
