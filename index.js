@@ -1,3 +1,4 @@
+
 const extensionName = "html-healer";
 
 // --- 1. Logic (Analysis & Fix) ---
@@ -5,62 +6,69 @@ const extensionName = "html-healer";
 let initialSegments = []; 
 let currentSegments = []; 
 
-// แยกส่วนประกอบ (ใช้สำหรับหน้า Editor)
+// แยกส่วนประกอบ: Thinking / UI / Story
 function parseSegments(rawText) {
     if (!rawText) return [];
     let cleanText = rawText
         .replace(/&lt;think&gt;/gi, "<think>")
         .replace(/&lt;\/think&gt;/gi, "</think>");
 
-    const rawBlocks = cleanText.split(/\n/).filter(line => line.trim() !== "");
+    const rawBlocks = cleanText.split(/\n/);
     
-    let isThinking = false;
-    let hasFoundStoryStart = false;
+    // --- [LOGIC ใหม่] ตรวจสอบความสมบูรณ์ของ Think ---
+    const hasOpenThink = /<think>/i.test(cleanText);
+    const hasCloseThink = /<\/think>/i.test(cleanText);
+    
+    // ถ้ามีเปิดแต่ไม่มีปิด = พัง (ให้ปิดการ detect UI)
+    const isThinkBroken = hasOpenThink && !hasCloseThink;
 
-    return rawBlocks.map((block, index) => {
-        let text = block.trim();
-        
-        // เช็คคร่าวๆ ว่าเป็น Tag เปิดยาวๆ หรือไม่
-        const startsWithComplexTag = /^<[^/](?!br|i|b|em|strong|span|p)[^>]*>?/i.test(text);
-        const hasCloseThink = /<\/think>|Close COT|End of thought/i.test(text);
-        
-        let assignedType = 'story'; 
+    let state = 'story'; // normal, think, ui
+    let segments = [];
+    
+    // Regex จับ UI (จะถูกข้ามถ้า Think พัง)
+    const uiStartRegex = /^<(div|table|style|aside|section|main|header|footer|nav|article|details|summary)/i;
+    
+    rawBlocks.forEach((line, index) => {
+        let text = line.trim();
+        if (text === "") {
+            segments.push({ id: index, text: line, type: state });
+            return;
+        }
 
-        if (!hasFoundStoryStart) {
-            if (startsWithComplexTag || /<think>/i.test(text) || isThinking) {
-                assignedType = 'think';
-                isThinking = true;
+        // State Transition Logic
+        if (state === 'story') {
+            if (/<think>/i.test(text)) {
+                state = 'think';
+            } else if (!isThinkBroken && uiStartRegex.test(text)) {
+                // เข้า UI ได้ก็ต่อเมื่อ Think ไม่พังเท่านั้น
+                state = 'ui';
             }
-            if (hasCloseThink) {
-                isThinking = false;
-                hasFoundStoryStart = true;
-                assignedType = 'think';
+        } else if (state === 'think') {
+            if (/<\/think>/i.test(text)) {
+                state = 'story'; 
             }
-        } else {
-            assignedType = 'story';
+        } else if (state === 'ui') {
+            if (/<think>/i.test(text)) {
+                 state = 'think';
+            }
+        }
+
+        // Special case: One-liners (Think จบในบรรทัดเดียว)
+        if (state === 'think' && /<\/think>/i.test(text)) {
+             segments.push({ id: index, text: line, type: 'think' });
+             state = 'story';
+             return;
         }
         
-        if (index === 0 && !isThinking && !startsWithComplexTag) assignedType = 'story';
-
-        return { id: index, text: text, type: assignedType };
+        segments.push({ id: index, text: line, type: state });
     });
+
+    return { segments, isThinkBroken }; // คืนค่า flag ไปบอก UI ด้วย
 }
 
-function applySplitPoint(startIndex) {
-    currentSegments.forEach((seg) => {
-        if (seg.id < startIndex) {
-            seg.type = 'think';
-        } else {
-            seg.type = 'story';
-        }
-    });
-}
-
-// ฟังก์ชันซ่อม HTML (Whitelist Mode)
 function whitelistFix(text) {
     if (!text) return "";
 
-    // รายชื่อแท็กมาตรฐาน HTML
     const standardTags = new Set([
         "a", "abbr", "address", "article", "aside", "audio", "b", "base", "bdi", "bdo", 
         "blockquote", "body", "br", "button", "canvas", "caption", "cite", "code", "col", 
@@ -131,11 +139,11 @@ async function performSmartQuickFix() {
     const lastIndex = chat.length - 1;
     const originalText = chat[lastIndex].mes;
 
-    // ตรวจหา <think> หรือ &lt;think
-    const hasThinking = /<think|&lt;think|&lt;\/think|<\/think>/i.test(originalText);
+    const hasThinking = /<think|&lt;think/i.test(originalText);
+    const hasUI = /<div|<table|<style/i.test(originalText);
 
-    if (hasThinking) {
-        toastr.info("Thinking detected! Opening editor to handle carefully...");
+    if (hasThinking || hasUI) {
+        toastr.info("Opening editor for complex content...");
         openSplitEditor(); 
     } else {
         const fixedText = whitelistFix(originalText);
@@ -143,9 +151,9 @@ async function performSmartQuickFix() {
             chat[lastIndex].mes = fixedText;
             await context.saveChat();
             await context.reloadCurrentChat();
-            toastr.success("HTML Fixed automatically!");
+            toastr.success("HTML Fixed!");
         } else {
-            toastr.success("HTML looks good already.");
+            toastr.success("No fix needed.");
         }
     }
 }
@@ -158,44 +166,31 @@ const authorConfig = {
     avatarUrl: "scripts/extensions/third-party/SillyTavern-FixHTML/avatar.png"
 };
 
-// >>>>>>> NEW FEATURE: Targeted UI Fixer <<<<<<<
+// UI Fixer (Targeted)
 function openTargetedFixer() {
     const context = SillyTavern.getContext();
     const chat = context.chat;
     if (!chat || chat.length === 0) return toastr.warning("No messages to fix.");
-
-    const lastIndex = chat.length - 1;
-    targetMessageId = lastIndex;
-    const originalText = chat[lastIndex].mes;
+    targetMessageId = chat.length - 1;
+    const originalText = chat[targetMessageId].mes;
 
     const modalHtml = `
     <div id="html-healer-modal" class="html-healer-overlay">
         <div class="html-healer-box">
-            
             <div class="healer-header">
                 <div class="header-brand">
                     <div class="header-icon"><i class="fa-solid fa-toolbox"></i></div>
-                    <div class="header-text">
-                        <span class="title">UI Fixer (Select & Fix)</span>
-                    </div>
+                    <div class="header-text"><span class="title">UI Fixer (Select & Fix)</span></div>
                 </div>
-
                 <div class="header-controls">
-                     <div class="author-pill">
-                        <img src="${authorConfig.avatarUrl}" onerror="this.style.display='none'">
-                        <span class="author-name">${authorConfig.name}</span>
-                    </div>
-                    <div class="close-btn" onclick="$('#html-healer-modal').remove()">
-                        <i class="fa-solid fa-xmark"></i>
-                    </div>
+                     <div class="close-btn" onclick="$('#html-healer-modal').remove()"><i class="fa-solid fa-xmark"></i></div>
                 </div>
             </div>
-            
             <div class="healer-body">
                 <div class="view-section active">
                     <div class="editor-group main-group">
                         <div class="group-toolbar">
-                            <span class="label"><i class="fa-solid fa-i-cursor"></i> Highlight the broken part below</span>
+                            <span class="label"><i class="fa-solid fa-i-cursor"></i> Highlight broken HTML part</span>
                             <div class="toolbar-actions">
                                 <button class="action-btn" id="btn-heal-selection" style="background:var(--smart-theme-color, #4caf50); color:#fff; border:none;">
                                     <i class="fa-solid fa-band-aid"></i> Fix Selection
@@ -206,74 +201,61 @@ function openTargetedFixer() {
                     </div>
                 </div>
             </div>
-
             <div class="healer-footer">
-                <button id="btn-save-targeted" class="save-button">
-                    <span class="btn-content"><i class="fa-solid fa-floppy-disk"></i> Save Changes</span>
-                </button>
+                <button id="btn-save-targeted" class="save-button"><i class="fa-solid fa-floppy-disk"></i> Save Changes</button>
             </div>
         </div>
-    </div>
-    `;
-
+    </div>`;
     $(document.body).append(modalHtml);
 
-    // Logic for Fixing Selection
     $('#btn-heal-selection').on('click', () => {
         const textarea = document.getElementById('editor-targeted');
         const start = textarea.selectionStart;
         const end = textarea.selectionEnd;
-
-        if (start === end) {
-            return toastr.warning("Please highlight/select the broken HTML first!");
-        }
-
+        if (start === end) return toastr.warning("Please highlight the UI code first!");
+        
         const fullText = textarea.value;
         const selectedText = fullText.substring(start, end);
-        
-        // Fix ONLY the selected text
         const fixedSegment = whitelistFix(selectedText);
-
-        if (fixedSegment === selectedText) {
-            toastr.info("Selection looks fine or cannot be fixed further.");
-            return;
-        }
-
-        // Replace text
-        const newText = fullText.substring(0, start) + fixedSegment + fullText.substring(end);
-        textarea.value = newText;
         
-        // Highlight the fixed part again
+        if (fixedSegment === selectedText) {
+            toastr.info("Selection looks fine."); return;
+        }
+        
+        textarea.value = fullText.substring(0, start) + fixedSegment + fullText.substring(end);
         textarea.setSelectionRange(start, start + fixedSegment.length);
         textarea.focus();
-        
         toastr.success("Fixed selected area!");
     });
 
-    // Save Logic
     $('#btn-save-targeted').on('click', async () => {
-        const finalMes = $('#editor-targeted').val();
-        if (chat[targetMessageId].mes !== finalMes) {
-            chat[targetMessageId].mes = finalMes;
-            await context.saveChat();
-            await context.reloadCurrentChat();
-            toastr.success("Saved!");
-        }
+        chat[targetMessageId].mes = $('#editor-targeted').val();
+        await context.saveChat();
+        await context.reloadCurrentChat();
         $('#html-healer-modal').remove();
     });
 }
 
+// Split Editor - Logic: Block UI if Think Broken
 function openSplitEditor() {
     const context = SillyTavern.getContext();
     const chat = context.chat;
     if (!chat || chat.length === 0) return toastr.warning("No messages to fix.");
 
-    const lastIndex = chat.length - 1;
-    targetMessageId = lastIndex;
-    const originalText = chat[lastIndex].mes;
+    targetMessageId = chat.length - 1;
+    const originalText = chat[targetMessageId].mes;
     
-    initialSegments = parseSegments(originalText);
+    // Parse
+    const parseResult = parseSegments(originalText);
+    initialSegments = parseResult.segments;
+    const isThinkBroken = parseResult.isThinkBroken; // Check status
+
     currentSegments = JSON.parse(JSON.stringify(initialSegments));
+    
+    // Alert user if Think is broken
+    if (isThinkBroken) {
+        toastr.error("Warning: Unclosed <think> detected!", "UI Detection Disabled");
+    }
 
     const modalHtml = `
     <div id="html-healer-modal" class="html-healer-overlay">
@@ -282,31 +264,21 @@ function openSplitEditor() {
             <div class="healer-header">
                 <div class="header-brand">
                     <div class="header-icon"><i class="fa-solid fa-layer-group"></i></div>
-                    <div class="header-text">
-                        <span class="title">Seg. Selector</span>
-                    </div>
+                    <div class="header-text"><span class="title">Split Editor</span></div>
                 </div>
-
                 <div class="header-controls">
-                     <button class="reset-btn" id="btn-reset-split" title="Reset">
-                        <i class="fa-solid fa-rotate-left"></i>
-                     </button>
-                     
-                     <div class="author-pill">
-                        <img src="${authorConfig.avatarUrl}" onerror="this.style.display='none'">
-                        <span class="author-name">${authorConfig.name}</span>
-                    </div>
-
-                    <div class="close-btn" onclick="$('#html-healer-modal').remove()">
-                        <i class="fa-solid fa-xmark"></i>
-                    </div>
+                     <button class="reset-btn" id="btn-reset-split" title="Reset"><i class="fa-solid fa-rotate-left"></i></button>
+                     <div class="close-btn" onclick="$('#html-healer-modal').remove()"><i class="fa-solid fa-xmark"></i></div>
                 </div>
             </div>
 
             <div class="segment-picker-area">
                 <div class="segment-scroller" id="segment-container"></div>
                 <div class="picker-instruction">
-                    <i class="fa-solid fa-arrow-pointer"></i> คลิกบรรทัดที่เป็น <b>"จุดเริ่มเนื้อเรื่อง"</b>
+                    ${isThinkBroken 
+                        ? '<span style="color:#e06c75;"><i class="fa-solid fa-triangle-exclamation"></i> Please fix unclosed THINK tag first to enable UI detection.</span>' 
+                        : '<i class="fa-solid fa-arrow-pointer"></i> Click segment to toggle type: <b>Story -> Think -> UI</b>'
+                    }
                 </div>
             </div>
             
@@ -315,21 +287,25 @@ function openSplitEditor() {
                     <div class="editor-group think-group">
                         <div class="group-toolbar">
                             <span class="label"><i class="fa-solid fa-brain"></i> Thinking</span>
+                            <span class="word-count" id="count-cot">0w</span>
+                        </div>
+                        <textarea id="editor-cot" placeholder="<think> content..."></textarea>
+                    </div>
+
+                    <div class="editor-group ui-group" style="border-color: #e06c75;">
+                        <div class="group-toolbar" style="background: rgba(224, 108, 117, 0.1);">
+                            <span class="label" style="color: #e06c75;"><i class="fa-solid fa-code"></i> UI / HTML</span>
                             <div class="toolbar-actions">
-                                <span class="word-count" id="count-cot">0w</span>
-                                <button class="action-btn" onclick="copyText('editor-cot')"><i class="fa-regular fa-copy"></i></button>
+                                <button class="action-btn" id="btn-heal-ui"><i class="fa-solid fa-wand-magic-sparkles"></i> Fix UI</button>
                             </div>
                         </div>
-                        <textarea id="editor-cot" placeholder="Thinking process..."></textarea>
+                        <textarea id="editor-ui" placeholder="<div>...</div> content..." style="color:#ffccbc;"></textarea>
                     </div>
 
                     <div class="editor-group main-group">
                         <div class="group-toolbar">
                             <span class="label"><i class="fa-solid fa-comments"></i> Story</span>
-                            <div class="toolbar-actions">
-                                <span class="word-count" id="count-main">0w</span>
-                                <button class="action-btn" id="btn-heal-html"><i class="fa-solid fa-wand-magic-sparkles"></i> Fix</button>
-                            </div>
+                            <span class="word-count" id="count-main">0w</span>
                         </div>
                         <textarea id="editor-main" placeholder="Story content..."></textarea>
                     </div>
@@ -338,7 +314,7 @@ function openSplitEditor() {
 
             <div class="healer-footer">
                 <button id="btn-save-split" class="save-button">
-                    <span class="btn-content"><i class="fa-solid fa-floppy-disk"></i> Save Changes</span>
+                    <span class="btn-content"><i class="fa-solid fa-floppy-disk"></i> Merge & Save</span>
                 </button>
             </div>
         </div>
@@ -348,49 +324,61 @@ function openSplitEditor() {
     $(document.body).append(modalHtml);
     renderSegments();
 
+    // Toggle Logic
     $('#segment-container').on('click', '.segment-block', function() {
+        if (isThinkBroken) {
+             toastr.warning("Fix <think> tag first!");
+             return; // ห้ามเปลี่ยน Type ถ้า Think พัง
+        }
+
         const id = $(this).data('id');
-        applySplitPoint(id); 
+        const seg = currentSegments.find(s => s.id === id);
+        if (seg.type === 'story') seg.type = 'think';
+        else if (seg.type === 'think') seg.type = 'ui';
+        else seg.type = 'story';
+        
         renderSegments(); 
     });
 
     $('#btn-reset-split').on('click', () => {
         currentSegments = JSON.parse(JSON.stringify(initialSegments));
         renderSegments();
-        toastr.info("Reset to initial detection.");
+        toastr.info("Reset segments.");
     });
 
-    $('#btn-heal-html').on('click', () => {
-        let val = $('#editor-main').val();
+    $('#btn-heal-ui').on('click', () => {
+        let val = $('#editor-ui').val();
         let fixed = whitelistFix(val);
-        $('#editor-main').val(fixed).trigger('input');
-        toastr.success("Standard Tags Fixed!");
+        $('#editor-ui').val(fixed).trigger('input');
+        toastr.success("Fixed UI HTML!");
     });
 
-    $('#editor-cot, #editor-main').on('input', updateCounts);
+    $('#editor-cot, #editor-main, #editor-ui').on('input', updateCounts);
 
     $('#btn-save-split').on('click', async () => {
         let cot = $('#editor-cot').val().trim();
-        const main = $('#editor-main').val();
-        let finalMes = "";
+        let ui = $('#editor-ui').val().trim();
+        let main = $('#editor-main').val().trim();
+        
+        let parts = [];
 
+        // Save logic: พยายามซ่อม Think ให้ด้วยตอนเซฟ ถ้า user ลืมปิด
         if (cot) {
-            if (!/^<think>/i.test(cot)) {
-                cot = `<think>\n${cot}`;
-            }
-            if (!/<\/think>$/i.test(cot)) {
-                cot = `${cot}\n</think>`;
-            }
-            finalMes = `${cot}\n${main}`;
-        } else {
-            finalMes = main;
+            if (!/^<think>/i.test(cot)) cot = `<think>\n${cot}`;
+            if (!/<\/think>$/i.test(cot)) cot = `${cot}\n</think>`;
+            parts.push(cot);
         }
+        
+        if (ui) parts.push(ui);
+        if (main) parts.push(main);
+
+        const finalMes = parts.join('\n\n');
 
         if (chat[targetMessageId].mes !== finalMes) {
             chat[targetMessageId].mes = finalMes;
             await context.saveChat();
             await context.reloadCurrentChat();
-            toastr.success("Saved!");
+            toastr.success("Merged & Saved!");
         }
         $('#html-healer-modal').remove();
     });
@@ -401,38 +389,39 @@ function renderSegments() {
     container.empty();
     
     currentSegments.forEach(seg => {
-        const isThink = seg.type === 'think';
-        const icon = isThink ? '<i class="fa-solid fa-brain"></i>' : '<i class="fa-solid fa-comment"></i>';
+        let icon = '<i class="fa-solid fa-comment"></i>';
+        let colorClass = 'type-story';
+        if (seg.type === 'think') { icon = '<i class="fa-solid fa-brain"></i>'; colorClass = 'type-think'; }
+        if (seg.type === 'ui') { icon = '<i class="fa-solid fa-code"></i>'; colorClass = 'type-ui'; } 
         
+        let style = seg.type === 'ui' ? 'border-color: #e06c75; background: rgba(224, 108, 117, 0.1);' : '';
+
         container.append(`
-            <div class="segment-block type-${seg.type}" data-id="${seg.id}">
+            <div class="segment-block ${colorClass}" data-id="${seg.id}" style="${style}">
                 <div class="seg-icon">${icon}</div>
-                <div class="seg-text">${seg.text.substring(0, 60)}...</div>
-                ${!isThink ? '<div class="seg-badge">Start</div>' : ''} 
+                <div class="seg-text">${seg.text.substring(0, 50)}...</div>
+                <div class="seg-badge">${seg.type.toUpperCase()}</div>
             </div>
         `);
     });
-    
-    $('.seg-badge').hide();
-    $('.segment-block.type-story').first().find('.seg-badge').show();
 
     const thinkText = currentSegments.filter(s => s.type === 'think').map(s => s.text).join('\n');
+    const uiText = currentSegments.filter(s => s.type === 'ui').map(s => s.text).join('\n');
     const storyText = currentSegments.filter(s => s.type === 'story').map(s => s.text).join('\n');
     
     $('#editor-cot').val(thinkText);
+    $('#editor-ui').val(uiText);
     $('#editor-main').val(storyText);
+    
+    if (!uiText) $('.ui-group').hide(); else $('.ui-group').show();
+    if (!thinkText) $('.think-group').hide(); else $('.think-group').show();
+    
     updateCounts();
 }
 
 const updateCounts = () => {
     $('#count-cot').text(countWords($('#editor-cot').val()) + "w");
     $('#count-main').text(countWords($('#editor-main').val()) + "w");
-};
-
-window.copyText = (id) => {
-    const el = document.getElementById(id);
-    el.select(); navigator.clipboard.writeText(el.value);
-    toastr.success("Copied!");
 };
 
 function loadSettings() {
@@ -447,7 +436,6 @@ function loadSettings() {
                 </div>
                 <div class="inline-drawer-content">
                     <div class="styled_description_block">Editor by ${authorConfig.name}</div>
-                    
                     <div style="display:flex; gap:5px; margin-top:5px;">
                         <div id="html-healer-quick-fix" class="menu_button" style="flex:1; background-color: var(--smart-theme-color, #4caf50);">
                             <i class="fa-solid fa-wand-magic-sparkles"></i> Auto
@@ -459,9 +447,6 @@ function loadSettings() {
                             <i class="fa-solid fa-toolbox"></i> UI Fix
                         </div>
                     </div>
-                    <small style="opacity:0.6; display:block; margin-top:5px; text-align:center;">
-                        Auto: Smart Fix | Split: Cot/Story | UI Fix: Select & Fix
-                    </small>
                 </div>
             </div>
         </div>
@@ -469,7 +454,7 @@ function loadSettings() {
     
     $('#html-healer-open-split').on('click', openSplitEditor);
     $('#html-healer-quick-fix').on('click', performSmartQuickFix);
-    $('#html-healer-open-targeted').on('click', openTargetedFixer); // New Listener
+    $('#html-healer-open-targeted').on('click', openTargetedFixer);
 }
 
 jQuery(async () => {
