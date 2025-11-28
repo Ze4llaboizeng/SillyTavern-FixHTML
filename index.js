@@ -516,12 +516,3 @@ jQuery(async () => {
     loadSettings();
     console.log(`[${extensionName}] Ready.`);
 });
-}
-</style>
-`;
-$('head').append(styles);
-
-jQuery(async () => {
-    loadSettings();
-    console.log(`[${extensionName}] Ready.`);
-});
