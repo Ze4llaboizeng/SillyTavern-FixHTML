@@ -6,7 +6,7 @@ let userCustomTags = new Set();
 let aiSettings = {
     provider: 'main', // 'main' or 'gemini'
     apiKey: '',
-    model: 'gemini-2.0-flash'
+    model: 'gemini-2.5-flash'
 };
 
 // --- LOGGING SYSTEM ---
@@ -289,7 +289,7 @@ function countWords(str) {
 async function callGeminiAPI(prompt, apiKey) {
     if (!apiKey) throw new Error("Missing Gemini API Key in settings.");
     
-    const model = aiSettings.model || "gemini-2.0-flash";
+    const model = aiSettings.model || "gemini-2.5-flash";
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
     
     addLog(`Calling Gemini API (${model})...`, "info");
@@ -668,11 +668,8 @@ function loadSettings() {
 
     // Dropdown options
     const modelOptions = [
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "gemini-1.5-pro",
-        "gemini-2.0-flash-exp",
-        "gemini-1.5-flash-8b"
+        "gemini-2.5-flash",
+        "gemini-2.5-pro"
     ].map(m => `<option value="${m}">${m}</option>`).join('');
 
     $('#extensions_settings').append(`
