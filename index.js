@@ -370,8 +370,6 @@ function loadSettings() {
     $('#html-healer-quick-fix').on('click', performSmartQuickFix);
 }
 
-$('head').append(styles);
-
 jQuery(async () => {
     loadSettings();
     console.log(`[${extensionName}] Ready.`);
