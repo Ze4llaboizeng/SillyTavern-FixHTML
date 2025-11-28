@@ -7,7 +7,7 @@ let aiSettings = {
     provider: 'main', // 'main' or 'gemini'
     apiKey: '',
     model: 'gemini-2.5-flash',
-    autoLearn: true // [New] เปิดโหมดเรียนรู้เป็นค่าเริ่มต้น
+    autoLearn: true
 };
 
 // --- LOGGING SYSTEM ---
@@ -115,7 +115,6 @@ function updateSettingsUI() {
 function saveAllSettings() {
     const tagsVal = $('#setting_custom_tags').val();
     
-    // Parse input tags to set
     userCustomTags.clear();
     tagsVal.split(',').forEach(t => {
         const clean = t.trim().toLowerCase();
@@ -135,7 +134,7 @@ function saveAllSettings() {
     addLog("Settings updated by user.", "info");
 }
 
-// --- 1. Logic (Analysis & Fix) ---
+// --- 1. Core Logic (Analysis & Fix) ---
 
 let initialSegments = []; 
 let currentSegments = []; 
@@ -187,7 +186,6 @@ function applySplitPoint(startIndex) {
     });
 }
 
-// Standard tags list for reference
 const STANDARD_TAGS_LIST = new Set([
     "a", "abbr", "address", "article", "aside", "audio", "b", "base", "bdi", "bdo", 
     "blockquote", "body", "br", "button", "canvas", "caption", "cite", "code", "col", 
@@ -200,18 +198,16 @@ const STANDARD_TAGS_LIST = new Set([
     "samp", "script", "section", "select", "small", "source", "span", "strong", "style", 
     "sub", "summary", "sup", "svg", "table", "tbody", "td", "template", "textarea", 
     "tfoot", "th", "thead", "time", "title", "tr", "track", "u", "ul", "var", "video", 
-    "wbr", "font", "center", "strike", "tt", "big", "think" // include think to ignore learning it
+    "wbr", "font", "center", "strike", "tt", "big", "think"
 ]);
 
 function smartLineFix(fullText) {
     if (!fullText) return "";
     addLog("Starting Robust Stack Fix (Universal Mode)...", "info");
 
-    // 1. Tokenize: แยกข้อความออกจาก Tag
     const tagRegex = /(<\/?(?:[a-zA-Z0-9\.\-\_:]+)[^>]*>)/g;
     const tokens = fullText.split(tagRegex);
 
-    // รายชื่อ Void Tags มาตรฐาน (ไม่ต้องมีปิด)
     const voidTags = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
     
     let stack = [];     
@@ -220,12 +216,9 @@ function smartLineFix(fullText) {
     for (let token of tokens) {
         if (!token) continue; 
 
-        // เช็คว่าเป็น Tag หรือไม่
         if (token.startsWith("<") && token.endsWith(">")) {
-            // ดึงชื่อ Tag ออกมา
             const match = token.match(/^<\/?([a-zA-Z0-9\.\-\_:]+)/);
             
-            // ถ้าแกะชื่อไม่ออก หรือชื่อไม่ได้ขึ้นต้นด้วยตัวอักษร (เช่น <3 หรือ <100) ให้ข้าม
             if (!match || !/^[a-zA-Z]/.test(match[1])) {
                 fixedText += token; 
                 continue;
@@ -233,19 +226,12 @@ function smartLineFix(fullText) {
 
             const tagName = match[1].toLowerCase();
             const isClosing = token.startsWith("</");
-            // [NEW] เช็คว่าเป็น Self-closing หรือไม่ (ลงท้ายด้วย />)
             const isSelfClosing = /\/>$/.test(token.trim());
 
-            // --- ส่วนที่แก้: ลบการเช็ค isStandard / isCustom ออก ---
-            // เราจะถือว่าถ้ามันผ่าน Regex ข้างบนมาได้ มันคือ Tag ที่เราต้องดูแลทั้งหมด
-
             if (voidTags.has(tagName) || isSelfClosing) {
-                // เป็น Tag เดี่ยว หรือเขียนแบบ Self-closing (<tag />) -> ผ่านเลย ไม่ต้องเข้า Stack
                 fixedText += token;
             } else if (isClosing) {
-                // --- กรณีเจอ Tag ปิด ---
                 let foundIdx = -1;
-                // หาคู่ของมันใน Stack
                 for (let i = stack.length - 1; i >= 0; i--) {
                     if (stack[i] === tagName) {
                         foundIdx = i;
@@ -254,31 +240,25 @@ function smartLineFix(fullText) {
                 }
 
                 if (foundIdx !== -1) {
-                    // เจอคู่! ปิดลูกๆ ที่ซ้อนอยู่ให้หมดก่อน
                     while (stack.length > foundIdx + 1) {
                         const top = stack.pop();
                         fixedText += `</${top}>`;
                     }
-                    stack.pop(); // เอาตัวมันออกจาก Stack
+                    stack.pop();
                     fixedText += token;
                 } else {
-                    // เจอ Tag ปิดลอยๆ ไม่มีตัวเปิด (Stray closing tag)
-                    // เก็บไว้เหมือนเดิม (หรือจะลบทิ้งก็ได้ถ้าอยากคลีน)
                     fixedText += token; 
                 }
             } else {
-                // --- กรณีเจอ Tag เปิด ---
-                stack.push(tagName); // ใส่ Stack รอวันปิด
+                stack.push(tagName);
                 fixedText += token;
             }
 
         } else {
-            // ข้อความปกติ
             fixedText += token;
         }
     }
 
-    // จบข้อความ: ปิด Tag ที่ค้างใน Stack ให้หมด
     while (stack.length > 0) {
         const top = stack.pop();
         fixedText += `</${top}>`;
@@ -286,14 +266,14 @@ function smartLineFix(fullText) {
 
     return fixedText;
 }
+
 function countWords(str) {
     if (!str) return 0;
     return str.trim().split(/\s+/).length;
 }
 
-// --- 2. Logic: AI Action ---
+// --- 2. AI & Learning Logic ---
 
-// [NEW] Learning Function
 function learnTagsFromAiOutput(fixedText) {
     if (!aiSettings.autoLearn) return;
 
@@ -305,9 +285,7 @@ function learnTagsFromAiOutput(fixedText) {
     while ((match = tagRegex.exec(fixedText)) !== null) {
         const tagName = match[1].toLowerCase();
         
-        // ถ้าเป็น tag ที่ไม่รู้จัก (ไม่อยู่ใน standard และไม่อยู่ใน custom เดิม)
         if (!STANDARD_TAGS_LIST.has(tagName) && !userCustomTags.has(tagName)) {
-            // กรองพวกตัวเลขล้วนหรือขยะออกหน่อย (Optional)
             if (/^[a-z][a-z0-9\.\-\_]*$/.test(tagName)) {
                 userCustomTags.add(tagName);
                 newTagsFound++;
@@ -317,15 +295,12 @@ function learnTagsFromAiOutput(fixedText) {
     }
 
     if (newTagsFound > 0) {
-        // บันทึกลง LocalStorage ทันที
         localStorage.setItem('html-healer-custom-tags', Array.from(userCustomTags).join(', '));
-        // อัปเดต UI ถ้าเปิดอยู่
         if ($('#setting_custom_tags').length) {
             $('#setting_custom_tags').val(Array.from(userCustomTags).join(', '));
         }
-        
-        addLog(`🧠 Learned ${newTagsFound} new tags from AI: ${learnedList.join(', ')}`, "success");
-        toastr.success(`Learned ${newTagsFound} new tags! Code Fix is now smarter.`);
+        addLog(`Learned ${newTagsFound} new tags: ${learnedList.join(', ')}`, "success");
+        toastr.success(`Learned ${newTagsFound} new tags!`);
     }
 }
 
@@ -398,13 +373,11 @@ ${textToFix}
     let cleanFixed = fixedText.trim();
     cleanFixed = cleanFixed.replace(/^```html\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '');
     
-    // [NEW] Trigger Learning
     learnTagsFromAiOutput(cleanFixed);
     
     return cleanFixed;
 }
 
-// ใช้สำหรับปุ่ม AI Fix ในหน้า Editor
 async function performAiFixEditor() {
     const mainText = $('#editor-main').val();
     if (!mainText) return toastr.warning("No story text.");
@@ -424,7 +397,7 @@ async function performAiFixEditor() {
     }
 }
 
-// --- 2.5 Quick Fix Selection Logic ---
+// --- 2.5 Quick Fix Selection Logic (Global Button) ---
 
 function showQuickFixPopup() {
     $('#html-healer-qf-popup').remove();
@@ -442,7 +415,7 @@ function showQuickFixPopup() {
                     <i class="fa-solid fa-code" style="font-size:1.2em; color:#a6b1e1;"></i>
                     <div>
                         <div style="font-weight:bold;">Code Fix</div>
-                        <div style="font-size:0.8em; opacity:0.6;">Fast, Offline, Hybrid Logic</div>
+                        <div style="font-size:0.8em; opacity:0.6;">Fast, Offline, Universal Logic</div>
                     </div>
                 </button>
                 
@@ -450,7 +423,7 @@ function showQuickFixPopup() {
                     <i class="fa-solid fa-robot" style="font-size:1.2em; color:var(--smart-theme-color);"></i>
                     <div>
                         <div style="font-weight:bold; color:var(--smart-theme-color);">AI Fix (Auto-Learn)</div>
-                        <div style="font-size:0.8em; opacity:0.6;">Smarter + Learns new tags automatically</div>
+                        <div style="font-size:0.8em; opacity:0.6;">Smarter + Learns new tags</div>
                     </div>
                 </button>
             </div>
@@ -495,7 +468,7 @@ async function runQuickFix(mode) {
                 await context.saveChat();
                 await context.reloadCurrentChat();
                 toastr.success("HTML Fixed (Code Hybrid)!");
-                addLog("QuickFix(Code): Applied Hybrid Fix.", "success");
+                addLog("QuickFix(Code): Applied Fix.", "success");
             } else {
                 toastr.success("HTML looks good.");
             }
@@ -522,8 +495,8 @@ async function runQuickFix(mode) {
     }
 }
 
+// --- 3. UI Builder (Split Editor) ---
 
-// --- 3. UI Builder ---
 let targetMessageId = null;
 
 const authorConfig = {
@@ -537,21 +510,31 @@ function openSplitEditor() {
     if (!chat || chat.length === 0) return toastr.warning("No messages to fix.");
 
     const lastIndex = chat.length - 1;
-    targetMessageId = lastIndex;
-    const originalText = chat[lastIndex].mes;
+    openTargetedSplitEditor(lastIndex);
+}
+
+function openTargetedSplitEditor(msgId) {
+    const context = SillyTavern.getContext();
+    const chat = context.chat;
+    const targetMsg = chat[msgId];
     
-    initialSegments = parseSegments(originalText);
+    if (!targetMsg) {
+        toastr.error("Message not found.");
+        return;
+    }
+
+    targetMessageId = msgId;
+    initialSegments = parseSegments(targetMsg.mes);
     currentSegments = JSON.parse(JSON.stringify(initialSegments));
 
     const modalHtml = `
     <div id="html-healer-modal" class="html-healer-overlay">
         <div class="html-healer-box">
-            
             <div class="healer-header">
                 <div class="header-brand">
                     <div class="header-icon"><i class="fa-solid fa-layer-group"></i></div>
                     <div class="header-text">
-                        <span class="title">Seg. Selector</span>
+                        <span class="title">Seg. Selector (Msg #${msgId})</span>
                     </div>
                 </div>
 
@@ -559,12 +542,10 @@ function openSplitEditor() {
                      <button class="reset-btn" id="btn-reset-split" title="Reset">
                         <i class="fa-solid fa-rotate-left"></i>
                      </button>
-                     
                      <div class="author-pill">
                         <img src="${authorConfig.avatarUrl}" onerror="this.style.display='none'">
                         <span class="author-name">${authorConfig.name}</span>
                     </div>
-
                     <div class="close-btn" onclick="$('#html-healer-modal').remove()">
                         <i class="fa-solid fa-xmark"></i>
                     </div>
@@ -574,7 +555,7 @@ function openSplitEditor() {
             <div class="segment-picker-area">
                 <div class="segment-scroller" id="segment-container"></div>
                 <div class="picker-instruction">
-                    <i class="fa-solid fa-arrow-pointer"></i> คลิกบรรทัดที่เป็น <b>"จุดเริ่มเนื้อเรื่อง"</b>
+                    <i class="fa-solid fa-arrow-pointer"></i> Select Start of Story Content
                 </div>
             </div>
             
@@ -635,10 +616,10 @@ function openSplitEditor() {
         let val = $('#editor-main').val();
         let fixed = smartLineFix(val);
         $('#editor-main').val(fixed).trigger('input');
-        toastr.success("Fixed with Hybrid Logic");
+        toastr.success("Fixed with Universal Logic");
     });
 
-    $('#btn-ai-fix').on('click', performAiFixEditor); // ใช้ฟังก์ชันใหม่
+    $('#btn-ai-fix').on('click', performAiFixEditor);
 
     $('#editor-cot, #editor-main').on('input', updateCounts);
 
@@ -705,16 +686,90 @@ window.copyText = (id) => {
     toastr.success("Copied!");
 };
 
+// --- 4. Professional Context Menu ---
+let contextMenuTargetId = null;
+
+function initContextMenu() {
+    $(document).off('contextmenu', '.mes_text');
+    $(document).on('contextmenu', '.mes_text', function(e) {
+        if (!e.ctrlKey) {
+            e.preventDefault();
+            const messageBlock = $(this).closest('.mes');
+            const mesIdAttr = messageBlock.attr('mesid');
+            if (typeof mesIdAttr !== 'undefined') {
+                contextMenuTargetId = parseInt(mesIdAttr, 10);
+                showContextMenu(e.pageX, e.pageY);
+            }
+        }
+    });
+
+    $(document).on('click', function(e) {
+        if (!$(e.target).closest('#html-healer-ctx-menu').length) {
+            $('#html-healer-ctx-menu').remove();
+        }
+    });
+}
+
+function showContextMenu(x, y) {
+    $('#html-healer-ctx-menu').remove();
+    const winWidth = $(window).width();
+    const menuWidth = 200; 
+    if (x + menuWidth > winWidth) x = winWidth - menuWidth - 10;
+    
+    const menuHtml = `
+    <div id="html-healer-ctx-menu" style="
+        position: absolute; top: ${y}px; left: ${x}px; z-index: 100000;
+        background: var(--lavender-darker, #1e1b24);
+        border: 1px solid var(--lavender-secondary, #a6b1e1);
+        border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        padding: 5px; width: ${menuWidth}px; display: flex; flex-direction: column; gap: 2px;
+        backdrop-filter: blur(5px);
+    ">
+        <div style="padding: 8px 12px; font-size: 0.85em; color: var(--lavender-secondary, #a6b1e1); border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 2px; font-weight: bold;">
+            <i class="fa-solid fa-user-doctor"></i> HTML Healer
+        </div>
+        <button onclick="ctxAction('fix')" class="menu_button" style="text-align:left; padding:10px; border:none; background:transparent; display:flex; gap:10px;">
+            <i class="fa-solid fa-wand-magic-sparkles" style="color: #98c379;"></i> <span>Quick Fix Here</span>
+        </button>
+        <button onclick="ctxAction('edit')" class="menu_button" style="text-align:left; padding:10px; border:none; background:transparent; display:flex; gap:10px;">
+            <i class="fa-solid fa-layer-group" style="color: #61afef;"></i> <span>Open Editor</span>
+        </button>
+    </div>`;
+    $('body').append(menuHtml);
+}
+
+window.ctxAction = async (action) => {
+    $('#html-healer-ctx-menu').remove();
+    if (contextMenuTargetId === null) return;
+    const context = SillyTavern.getContext();
+    const chat = context.chat;
+    
+    if (action === 'fix') {
+        const originalText = chat[contextMenuTargetId].mes;
+        addLog(`ContextMenu: Fixing Msg #${contextMenuTargetId}...`, "info");
+        const fixedText = smartLineFix(originalText);
+        if (fixedText !== originalText) {
+            chat[contextMenuTargetId].mes = fixedText;
+            await context.saveChat();
+            await context.reloadCurrentChat();
+            toastr.success(`Fixed Msg #${contextMenuTargetId}`);
+            addLog("ContextMenu: Fix applied.", "success");
+        } else {
+            toastr.info("HTML looks good.");
+        }
+    } else if (action === 'edit') {
+        openTargetedSplitEditor(contextMenuTargetId);
+    }
+};
+
+// --- 5. Main Initialization ---
+
 function loadSettings() {
     if ($('.html-healer-settings').length > 0) return;
     loadSettingsData();
 
-    // Dropdown options
-    const modelOptions = [
-        "gemini-2.5-flash",
-        "gemini-2.5-pro"
-       
-    ].map(m => `<option value="${m}">${m}</option>`).join('');
+    const modelOptions = ["gemini-2.5-flash", "gemini-2.5-pro"]
+        .map(m => `<option value="${m}">${m}</option>`).join('');
 
     $('#extensions_settings').append(`
         <div class="html-healer-settings">
@@ -727,10 +782,10 @@ function loadSettings() {
                     <div class="styled_description_block">Editor by ${authorConfig.name}</div>
                     
                     <div style="margin: 10px 0;">
-                        <label style="font-weight:bold; font-size:0.9em;">Custom Tags:</label>
+                        <label style="font-weight:bold; font-size:0.9em;">Custom Tags (Manual):</label>
                         <textarea id="setting_custom_tags" rows="2" 
                             style="width:100%; margin-top:5px; background:rgba(0,0,0,0.2); color:#fff; border:1px solid #444; border-radius:5px; padding:5px;"
-                            placeholder="e.g. scrollborad.zeal, neon-box"></textarea>
+                            placeholder="e.g. scrollborad.zeal"></textarea>
                     </div>
 
                     <div style="margin-bottom:10px; display:flex; align-items:center; gap:8px;">
@@ -739,16 +794,14 @@ function loadSettings() {
                     </div>
 
                     <div style="margin: 10px 0;">
-                        <label style="font-weight:bold; font-size:0.9em;">AI Provider for "AI Fix":</label>
+                        <label style="font-weight:bold; font-size:0.9em;">AI Provider:</label>
                         <select id="setting_ai_provider" class="text_pole" style="width:100%; margin-top:5px;">
                             <option value="main">SillyTavern Main API (Default)</option>
                             <option value="gemini">Direct Gemini API (Recommended)</option>
                         </select>
-                        
                         <div class="gemini-settings" style="display:none; margin-top:10px; padding-left:10px; border-left:2px solid #4caf50;">
                             <label style="font-size:0.85em;">Gemini API Key:</label>
                             <input type="password" id="setting_gemini_key" class="text_pole" style="width:100%; margin-bottom:5px;" placeholder="AIzaSy...">
-                            
                             <label style="font-size:0.85em;">Model Name:</label>
                             <select id="setting_gemini_model" class="text_pole" style="width:100%;">
                                 ${modelOptions}
@@ -764,15 +817,13 @@ function loadSettings() {
                             <i class="fa-solid fa-list"></i> Logs
                         </button>
                     </div>
-                    
                     <hr style="opacity:0.2;">
-
                     <div style="display:flex; gap:5px; margin-top:5px;">
                         <div id="html-healer-quick-fix" class="menu_button" style="flex:1; background-color: var(--smart-theme-color, #4caf50);">
-                            <i class="fa-solid fa-wand-magic-sparkles"></i> Quick Fix
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> Quick Fix (Latest)
                         </div>
                         <div id="html-healer-open-split" class="menu_button" style="flex:1;">
-                            <i class="fa-solid fa-layer-group"></i> Editor
+                            <i class="fa-solid fa-layer-group"></i> Open Editor
                         </div>
                     </div>
                 </div>
@@ -780,166 +831,20 @@ function loadSettings() {
         </div>
     `);
     
-    // Event Handlers
     $('#setting_ai_provider').on('change', function() {
-        if ($(this).val() === 'gemini') {
-            $('.gemini-settings').slideDown();
-        } else {
-            $('.gemini-settings').slideUp();
-        }
+        if ($(this).val() === 'gemini') $('.gemini-settings').slideDown();
+        else $('.gemini-settings').slideUp();
     });
 
     $('#html-healer-open-split').on('click', openSplitEditor);
-    // เปลี่ยนมาเรียก showQuickFixPopup แทน
     $('#html-healer-quick-fix').on('click', showQuickFixPopup); 
     $('#btn_save_all').on('click', saveAllSettings);
     $('#btn_view_logs').on('click', showLogViewer);
 }
 
-// --- CSS UPDATED ---
-const styles = `
-<style>
-:root {
-    --lavender-primary: #dcd6f7;
-    --lavender-secondary: #a6b1e1;
-    --lavender-border: rgba(166, 177, 225, 0.2);
-    --lavender-dark: #2a2730;
-    --lavender-darker: #1e1b24;
-    --lavender-text: #f4f4f8;
-}
-
-.html-healer-box * { box-sizing: border-box; }
-.html-healer-overlay {
-    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-    z-index: 99999; background: rgba(0,0,0,0.85);
-    display: flex; align-items: center; justify-content: center;
-    backdrop-filter: blur(4px);
-    padding: 10px;
-}
-
-.html-healer-box {
-    width: 100%; max-width: 900px; height: 90vh;
-    background: var(--lavender-darker);
-    border: 1px solid var(--lavender-border);
-    border-radius: 12px;
-    display: flex; flex-direction: column;
-    box-shadow: 0 0 30px rgba(0,0,0,0.6);
-    overflow: hidden;
-}
-
-/* HEADER */
-.healer-header {
-    background: var(--lavender-dark); padding: 5px 10px;
-    display: flex; justify-content: space-between; align-items: center;
-    border-bottom: 1px solid var(--lavender-border); height: 55px; flex-shrink: 0;
-}
-.header-brand { display: flex; gap: 8px; align-items: center; }
-.header-icon { font-size: 1.1em; color: var(--lavender-secondary); }
-.header-text .title { font-weight: bold; color: var(--lavender-text); font-size: 0.9em; }
-
-/* CONTROLS (Right Side) */
-.header-controls { 
-    display: flex; gap: 8px; align-items: center; margin-left: auto; 
-    flex-shrink: 0; 
-}
-.close-btn { 
-    cursor: pointer; padding: 5px; color: var(--lavender-text); font-size: 1.2em;
-    display: flex; align-items: center; justify-content: center;
-    height: 32px; width: 32px;
-}
-.reset-btn {
-    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
-    color: #ddd; border-radius: 4px; padding: 0 8px; cursor: pointer; font-size: 0.9em;
-    height: 32px;
-    display: flex; align-items: center; justify-content: center;
-}
-
-/* AUTHOR PILL */
-.author-pill {
-    display: flex; align-items: center; gap: 8px;
-    background: rgba(255, 255, 255, 0.05);
-    padding: 0 10px 0 4px;
-    border-radius: 16px;
-    border: 1px solid var(--lavender-border);
-    height: 32px;
-    white-space: nowrap;
-}
-.author-pill img {
-    width: 24px; height: 24px; border-radius: 50%; object-fit: cover;
-    flex-shrink: 0;
-    display: block; 
-}
-.author-pill .author-name {
-    font-size: 0.8em; color: var(--lavender-text); font-weight: bold;
-    line-height: 1; 
-}
-
-/* SEGMENT PICKER */
-.segment-picker-area {
-    padding: 5px; background: rgba(0,0,0,0.2);
-    border-bottom: 1px solid var(--lavender-border);
-    height: 140px; display: flex; flex-direction: column; gap: 5px;
-}
-.segment-scroller { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
-.picker-instruction { font-size: 0.75em; color: #888; text-align: center; }
-
-.segment-block {
-    display: flex; align-items: center; gap: 8px; padding: 8px; 
-    border-radius: 4px; cursor: pointer; border: 1px solid transparent;
-    font-size: 0.8em; background: rgba(255,255,255,0.03);
-    position: relative;
-    min-height: 35px;
-}
-.segment-block.type-think { border-color: var(--lavender-secondary); background: rgba(166, 177, 225, 0.1); opacity: 0.7; }
-.segment-block.type-story { border-color: rgba(152, 195, 121, 0.4); background: rgba(152, 195, 121, 0.1); font-weight: bold;}
-.seg-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ddd; }
-.seg-badge { background: #98c379; color: #222; font-size: 0.7em; padding: 1px 5px; border-radius: 4px; font-weight: bold; }
-
-/* EDITOR BODY */
-.healer-body { flex: 1; display: flex; overflow: hidden; }
-.view-section { flex: 1; display: flex; flex-direction: column; padding: 5px; gap: 5px; }
-.editor-group { flex: 1; display: flex; flex-direction: column; border: 1px solid var(--lavender-border); border-radius: 6px; }
-.group-toolbar {
-    padding: 5px; background: rgba(0,0,0,0.2);
-    display: flex; justify-content: space-between; align-items: center;
-}
-.label { font-size: 0.8em; font-weight: bold; color: var(--lavender-secondary); }
-.toolbar-actions { display: flex; gap: 5px; align-items: center; }
-.word-count { font-size: 0.65em; color: #666; }
-.action-btn { background: none; border: 1px solid #444; color: #ccc; border-radius: 4px; cursor: pointer; font-size: 0.7em; padding: 2px 5px; }
-textarea { flex: 1; width: 100%; border: none; background: transparent; color: #eee; padding: 8px; resize: none; outline: none; font-family: monospace; font-size: 13px; }
-
-/* FOOTER */
-.healer-footer {
-    padding: 8px 10px; background: var(--lavender-dark);
-    border-top: 1px solid var(--lavender-border);
-    display: flex; justify-content: center; 
-    align-items: center;
-    padding-bottom: max(8px, env(safe-area-inset-bottom));
-}
-.save-button {
-    background: var(--lavender-secondary); color: #222; border: none;
-    padding: 10px 0; 
-    border-radius: 8px; font-weight: bold; cursor: pointer;
-    width: 100%; 
-    font-size: 1em;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-}
-
-/* MOBILE RESPONSIVE TWEAKS */
-@media screen and (max-width: 600px) {
-    .header-brand { display: none; } 
-    .header-controls { width: 100%; justify-content: space-between; }
-    .author-pill { flex: 1; justify-content: center; max-width: none; }
-    .author-pill .author-name { display: inline-block; }
-    .segment-picker-area { height: 150px; }
-}
-</style>
-`;
-$('head').append(styles);
-
 jQuery(async () => {
     loadSettings();
+    setTimeout(initContextMenu, 2000); 
     console.log(`[${extensionName}] Ready.`);
     addLog(`${extensionName} loaded successfully.`);
 });
