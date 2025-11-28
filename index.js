@@ -1,5 +1,31 @@
 const extensionName = "html-healer";
 
+// --- 0. Global Settings & Persistence ---
+const DEFAULT_CUSTOM_TAGS = "scrollborad.zeal, neon-box, chat-bubble";
+let userCustomTags = new Set();
+
+function loadCustomTags() {
+    const stored = localStorage.getItem('html-healer-custom-tags');
+    const rawString = stored !== null ? stored : DEFAULT_CUSTOM_TAGS;
+    
+    userCustomTags.clear();
+    rawString.split(',').forEach(t => {
+        const clean = t.trim().toLowerCase();
+        if (clean) userCustomTags.add(clean);
+    });
+    
+    // อัปเดต UI ถ้าเปิดอยู่
+    if ($('#setting_custom_tags').length) {
+        $('#setting_custom_tags').val(Array.from(userCustomTags).join(', '));
+    }
+}
+
+function saveCustomTags(str) {
+    localStorage.setItem('html-healer-custom-tags', str);
+    loadCustomTags();
+    toastr.success("Custom tags updated!");
+}
+
 // --- 1. Logic (Analysis & Fix) ---
 
 let initialSegments = []; 
@@ -19,7 +45,6 @@ function parseSegments(rawText) {
 
     return rawBlocks.map((block, index) => {
         let text = block.trim();
-        
         const startsWithComplexTag = /^<[^/](?!br|i|b|em|strong|span|p)[^>]*>?/i.test(text);
         const hasCloseThink = /<\/think>|Close COT|End of thought/i.test(text);
         
@@ -55,11 +80,11 @@ function applySplitPoint(startIndex) {
     });
 }
 
-// ฟังก์ชันซ่อม HTML (Whitelist + Custom Tags)
+// ฟังก์ชันซ่อม HTML (Stack-Based Logic)
 function whitelistFix(text) {
     if (!text) return "";
 
-    // 1. รายชื่อแท็กมาตรฐาน HTML (ไม่ต้องแก้ตรงนี้)
+    // 1. Standard Tags
     const standardTags = new Set([
         "a", "abbr", "address", "article", "aside", "audio", "b", "base", "bdi", "bdo", 
         "blockquote", "body", "br", "button", "canvas", "caption", "cite", "code", "col", 
@@ -75,30 +100,28 @@ function whitelistFix(text) {
         "wbr", "font", "center", "strike", "tt", "big" 
     ]);
 
-    // [แก้ไขตรงนี้] 2. ใส่ Custom Tags ของคุณที่ต้องการให้ระบบช่วยซ่อม (เช่น scrollborad.zeal)
-    // ใส่ชื่อ Tag โดยไม่ต้องมี < > 
-    const userCustomTags = new Set([
-        "scrollborad.zeal",
-        "neon-box",
-        "chat-bubble",
-        // อยากเพิ่มอะไรใส่ตรงนี้ได้เลย
-    ]);
-
+    // 2. Void Tags (ไม่ต้องปิด)
     const voidTags = new Set([
         "area", "base", "br", "col", "embed", "hr", "img", "input", 
         "link", "meta", "param", "source", "track", "wbr"
     ]);
 
-    // Regex นี้รองรับชื่อ tag ที่มีจุด (.) ขีด (-) และ underscore (_)
     const tagRegex = /<\/?([a-zA-Z0-9\.\-\_:]+)[^>]*>/g;
-    let stack = [];
+    
+    // [TMP ARRAY] นี่คือ "tmp array" ที่คุณพูดถึง (Stack)
+    // มันจะเก็บลำดับแท็กที่เปิดค้างไว้ตามลำดับเวลา (First-In, Last-Out)
+    // เช่น เปิด <box> -> stack = ['box']
+    // เปิด <title> -> stack = ['box', 'title']
+    // เวลาแก้ มันจะไล่ย้อนจากหลังมาหน้า คือปิด title ก่อน แล้วค่อยปิด box
+    let stack = []; 
+    
     let match;
     
     while ((match = tagRegex.exec(text)) !== null) {
         const fullTag = match[0];
         const tagName = match[1].toLowerCase();
 
-        // เช็คว่าอยู่ใน Standard หรือ Custom หรือไม่? ถ้าไม่อยู่ให้ข้าม
+        // เช็คว่าเป็น Standard หรือ Custom (ที่โหลดจากช่องกรอก) หรือไม่
         const isStandard = standardTags.has(tagName);
         const isCustom = userCustomTags.has(tagName);
 
@@ -107,6 +130,7 @@ function whitelistFix(text) {
 
         if (fullTag.startsWith("</")) {
             // เจอตัวปิด: วนหาตัวเปิดล่าสุดที่ตรงกันใน Stack
+            // ไล่ย้อนจากปลายแถว (ลูก) ไปหาหัวแถว (แม่)
             let foundIndex = -1;
             for (let i = stack.length - 1; i >= 0; i--) {
                 if (stack[i] === tagName) {
@@ -115,18 +139,21 @@ function whitelistFix(text) {
                 }
             }
             if (foundIndex !== -1) {
-                // ถ้าเจอคู่ ให้ตัด Stack ตั้งแต่ตัวนั้นลงไปทิ้ง (ถือว่าปิดเรียบร้อย)
+                // ถ้าเจอคู่ แสดงว่าแท็กนี้ถูกปิดถูกต้องแล้ว ลบออกจาก Stack
+                // ลบตัวมันเองและลูกหลานที่อาจจะค้างอยู่ (ถ้ามี) ออกไปด้วย
                 stack.splice(foundIndex, stack.length - foundIndex);
             }
         } else {
-            // เจอตัวเปิด: จำใส่ Stack
+            // เจอตัวเปิด: ใส่ Stack รอไว้ (เป็นลูกคนล่าสุด)
             stack.push(tagName);
         }
     }
 
-    // ถ้าจบข้อความแล้วยังมีอะไรค้างใน Stack (ลืมปิด) ให้สร้างตัวปิดต่อท้ายให้ครบ
+    // [FINAL FIX] ส่วนนี้คือการไล่ปิดแท็กที่ยังค้างอยู่ใน Stack
+    // stack.reverse() จะกลับด้าน Array เพื่อให้ปิดจาก "ลูก" ไปหา "แม่"
     if (stack.length > 0) {
         const closingTags = stack.reverse().map(t => `</${t}>`).join("");
+        // แปะต่อท้ายข้อความเดิม
         return text + "\n" + closingTags;
     }
 
@@ -151,7 +178,7 @@ async function performSmartQuickFix() {
     const hasThinking = /<think|&lt;think|&lt;\/think|<\/think>/i.test(originalText);
 
     if (hasThinking) {
-        toastr.info("Thinking detected! Opening editor to handle carefully...");
+        toastr.info("Thinking detected! Opening editor...");
         openSplitEditor(); 
     } else {
         const fixedText = whitelistFix(originalText);
@@ -159,9 +186,9 @@ async function performSmartQuickFix() {
             chat[lastIndex].mes = fixedText;
             await context.saveChat();
             await context.reloadCurrentChat();
-            toastr.success("HTML Fixed automatically!");
+            toastr.success("HTML Fixed!");
         } else {
-            toastr.success("HTML looks good already.");
+            toastr.success("HTML looks good.");
         }
     }
 }
@@ -286,12 +313,8 @@ function openSplitEditor() {
         let finalMes = "";
 
         if (cot) {
-            if (!/^<think>/i.test(cot)) {
-                cot = `<think>\n${cot}`;
-            }
-            if (!/<\/think>$/i.test(cot)) {
-                cot = `${cot}\n</think>`;
-            }
+            if (!/^<think>/i.test(cot)) { cot = `<think>\n${cot}`; }
+            if (!/<\/think>$/i.test(cot)) { cot = `${cot}\n</think>`; }
             finalMes = `${cot}\n${main}`;
         } else {
             finalMes = main;
@@ -349,6 +372,10 @@ window.copyText = (id) => {
 function loadSettings() {
     if ($('.html-healer-settings').length > 0) return;
     
+    // โหลด Tags จาก localStorage
+    loadCustomTags();
+
+    // สร้าง UI
     $('#extensions_settings').append(`
         <div class="html-healer-settings">
             <div class="inline-drawer">
@@ -359,6 +386,15 @@ function loadSettings() {
                 <div class="inline-drawer-content">
                     <div class="styled_description_block">Editor by ${authorConfig.name}</div>
                     
+                    <div style="margin: 10px 0;">
+                        <label style="font-weight:bold; font-size:0.9em;">Custom Tags (comma separated):</label>
+                        <textarea id="setting_custom_tags" rows="2" 
+                            style="width:100%; margin-top:5px; background:rgba(0,0,0,0.2); color:#fff; border:1px solid #444; border-radius:5px; padding:5px;"
+                            placeholder="e.g. scrollborad.zeal, neon-box"></textarea>
+                        <button id="btn_save_tags" class="menu_button" style="margin-top:5px; padding:5px 10px; font-size:0.8em;">Save Tags</button>
+                    </div>
+                    <hr style="opacity:0.2;">
+
                     <div style="display:flex; gap:5px; margin-top:5px;">
                         <div id="html-healer-quick-fix" class="menu_button" style="flex:1; background-color: var(--smart-theme-color, #4caf50);">
                             <i class="fa-solid fa-wand-magic-sparkles"></i> Quick Fix
@@ -375,6 +411,12 @@ function loadSettings() {
     
     $('#html-healer-open-split').on('click', openSplitEditor);
     $('#html-healer-quick-fix').on('click', performSmartQuickFix);
+    
+    // ปุ่ม Save Tags
+    $('#btn_save_tags').on('click', () => {
+        const val = $('#setting_custom_tags').val();
+        saveCustomTags(val);
+    });
 }
 
 // --- CSS UPDATED ---
