@@ -135,11 +135,9 @@ async function performSmartQuickFix() {
     const hasThinking = /<think|&lt;think|&lt;\/think|<\/think>/i.test(originalText);
 
     if (hasThinking) {
-        // กรณีเจอ Think -> บังคับเปิด Editor (ตามที่คุณขอไว้: ถ้า think หลุดให้เป็นป๊อปอัพ)
         toastr.info("Thinking detected! Opening editor to handle carefully...");
         openSplitEditor(); 
     } else {
-        // กรณี HTML ธรรมดา -> ซ่อมเลย
         const fixedText = whitelistFix(originalText);
         if (fixedText !== originalText) {
             chat[lastIndex].mes = fixedText;
@@ -159,6 +157,111 @@ const authorConfig = {
     name: "Zealllll",
     avatarUrl: "scripts/extensions/third-party/SillyTavern-FixHTML/avatar.png"
 };
+
+// >>>>>>> NEW FEATURE: Targeted UI Fixer <<<<<<<
+function openTargetedFixer() {
+    const context = SillyTavern.getContext();
+    const chat = context.chat;
+    if (!chat || chat.length === 0) return toastr.warning("No messages to fix.");
+
+    const lastIndex = chat.length - 1;
+    targetMessageId = lastIndex;
+    const originalText = chat[lastIndex].mes;
+
+    const modalHtml = `
+    <div id="html-healer-modal" class="html-healer-overlay">
+        <div class="html-healer-box">
+            
+            <div class="healer-header">
+                <div class="header-brand">
+                    <div class="header-icon"><i class="fa-solid fa-toolbox"></i></div>
+                    <div class="header-text">
+                        <span class="title">UI Fixer (Select & Fix)</span>
+                    </div>
+                </div>
+
+                <div class="header-controls">
+                     <div class="author-pill">
+                        <img src="${authorConfig.avatarUrl}" onerror="this.style.display='none'">
+                        <span class="author-name">${authorConfig.name}</span>
+                    </div>
+                    <div class="close-btn" onclick="$('#html-healer-modal').remove()">
+                        <i class="fa-solid fa-xmark"></i>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="healer-body">
+                <div class="view-section active">
+                    <div class="editor-group main-group">
+                        <div class="group-toolbar">
+                            <span class="label"><i class="fa-solid fa-i-cursor"></i> Highlight the broken part below</span>
+                            <div class="toolbar-actions">
+                                <button class="action-btn" id="btn-heal-selection" style="background:var(--smart-theme-color, #4caf50); color:#fff; border:none;">
+                                    <i class="fa-solid fa-band-aid"></i> Fix Selection
+                                </button>
+                            </div>
+                        </div>
+                        <textarea id="editor-targeted" placeholder="Message content..." style="font-family: monospace;">${originalText}</textarea>
+                    </div>
+                </div>
+            </div>
+
+            <div class="healer-footer">
+                <button id="btn-save-targeted" class="save-button">
+                    <span class="btn-content"><i class="fa-solid fa-floppy-disk"></i> Save Changes</span>
+                </button>
+            </div>
+        </div>
+    </div>
+    `;
+
+    $(document.body).append(modalHtml);
+
+    // Logic for Fixing Selection
+    $('#btn-heal-selection').on('click', () => {
+        const textarea = document.getElementById('editor-targeted');
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+
+        if (start === end) {
+            return toastr.warning("Please highlight/select the broken HTML first!");
+        }
+
+        const fullText = textarea.value;
+        const selectedText = fullText.substring(start, end);
+        
+        // Fix ONLY the selected text
+        const fixedSegment = whitelistFix(selectedText);
+
+        if (fixedSegment === selectedText) {
+            toastr.info("Selection looks fine or cannot be fixed further.");
+            return;
+        }
+
+        // Replace text
+        const newText = fullText.substring(0, start) + fixedSegment + fullText.substring(end);
+        textarea.value = newText;
+        
+        // Highlight the fixed part again
+        textarea.setSelectionRange(start, start + fixedSegment.length);
+        textarea.focus();
+        
+        toastr.success("Fixed selected area!");
+    });
+
+    // Save Logic
+    $('#btn-save-targeted').on('click', async () => {
+        const finalMes = $('#editor-targeted').val();
+        if (chat[targetMessageId].mes !== finalMes) {
+            chat[targetMessageId].mes = finalMes;
+            await context.saveChat();
+            await context.reloadCurrentChat();
+            toastr.success("Saved!");
+        }
+        $('#html-healer-modal').remove();
+    });
+}
 
 function openSplitEditor() {
     const context = SillyTavern.getContext();
@@ -266,25 +369,18 @@ function openSplitEditor() {
 
     $('#editor-cot, #editor-main').on('input', updateCounts);
 
-    // --- [แก้ไข] LOGIC ปุ่ม SAVE แบบฉลาด ---
     $('#btn-save-split').on('click', async () => {
         let cot = $('#editor-cot').val().trim();
         const main = $('#editor-main').val();
         let finalMes = "";
 
         if (cot) {
-            // เช็คว่าในกล่องข้อความ มี <think> เปิดอยู่แล้วหรือยัง?
-            // ถ้าไม่มี -> ให้เติม <think> นำหน้า
             if (!/^<think>/i.test(cot)) {
                 cot = `<think>\n${cot}`;
             }
-
-            // เช็คว่าในกล่องข้อความ มี </think> ปิดอยู่แล้วหรือยัง?
-            // ถ้าไม่มี -> ให้เติม </think> ปิดท้าย
             if (!/<\/think>$/i.test(cot)) {
                 cot = `${cot}\n</think>`;
             }
-            
             finalMes = `${cot}\n${main}`;
         } else {
             finalMes = main;
@@ -354,13 +450,18 @@ function loadSettings() {
                     
                     <div style="display:flex; gap:5px; margin-top:5px;">
                         <div id="html-healer-quick-fix" class="menu_button" style="flex:1; background-color: var(--smart-theme-color, #4caf50);">
-                            <i class="fa-solid fa-wand-magic-sparkles"></i> Quick Fix
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> Auto
                         </div>
                         <div id="html-healer-open-split" class="menu_button" style="flex:1;">
-                            <i class="fa-solid fa-layer-group"></i> Editor
+                            <i class="fa-solid fa-layer-group"></i> Split
+                        </div>
+                        <div id="html-healer-open-targeted" class="menu_button" style="flex:1;">
+                            <i class="fa-solid fa-toolbox"></i> UI Fix
                         </div>
                     </div>
-                    <small style="opacity:0.6; display:block; margin-top:5px; text-align:center;">*Quick fix will open editor if &lt;think&gt; detected.</small>
+                    <small style="opacity:0.6; display:block; margin-top:5px; text-align:center;">
+                        Auto: Smart Fix | Split: Cot/Story | UI Fix: Select & Fix
+                    </small>
                 </div>
             </div>
         </div>
@@ -368,6 +469,7 @@ function loadSettings() {
     
     $('#html-healer-open-split').on('click', openSplitEditor);
     $('#html-healer-quick-fix').on('click', performSmartQuickFix);
+    $('#html-healer-open-targeted').on('click', openTargetedFixer); // New Listener
 }
 
 jQuery(async () => {
