@@ -1,4 +1,3 @@
-
 const extensionName = "html-healer";
 
 // --- 1. Logic (Analysis & Fix) ---
@@ -15,14 +14,12 @@ const authorConfig = {
 function parseSegments(rawText) {
     if (!rawText) return { segments: [], isThinkBroken: false };
     
-    // แปลง escape characters กลับมาเป็น tag จริงก่อนประมวลผล
     let cleanText = rawText
         .replace(/&lt;think&gt;/gi, "<think>")
         .replace(/&lt;\/think&gt;/gi, "</think>");
 
     const rawBlocks = cleanText.split(/\n/);
     
-    // ตรวจสอบความสมบูรณ์ของ Think
     const hasOpenThink = /<think>/i.test(cleanText);
     const hasCloseThink = /<\/think>/i.test(cleanText);
     const isThinkBroken = hasOpenThink && !hasCloseThink;
@@ -30,11 +27,12 @@ function parseSegments(rawText) {
     let state = 'story'; 
     let segments = [];
     
-    // Regex จับ UI (เพิ่ม pre/code เข้ามาเผื่อเป็นโค้ด)
+    // Regex จับ UI 
     const uiStartRegex = /^<(div|table|style|aside|section|main|header|footer|nav|article|details|summary|code|pre)/i;
     
     rawBlocks.forEach((line, index) => {
         let text = line.trim();
+        // เก็บทุกบรรทัดแม้จะเป็นบรรทัดว่าง เพื่อให้โครงสร้างครบถ้วน
         if (text === "") {
             segments.push({ id: index, text: line, type: state });
             return;
@@ -56,7 +54,6 @@ function parseSegments(rawText) {
             }
         }
 
-        // กรณีจบ Think ในบรรทัดเดียว
         if (state === 'think' && /<\/think>/i.test(text)) {
              segments.push({ id: index, text: line, type: 'think' });
              state = 'story';
@@ -69,23 +66,10 @@ function parseSegments(rawText) {
     return { segments, isThinkBroken };
 }
 
-// --- [UPDATED] Advanced HTML Fixer ---
-// รองรับ: name.subname, colon:tags, nesting check
 function advancedHtmlFix(text) {
     if (!text) return "";
-
-    // Regex ใหม่: รองรับ a-z, 0-9, -, _, . (จุด), : (โคลอน)
-    // Group 1: Slash (ถ้าเป็น tag ปิด)
-    // Group 2: Tag Name (เช่น char.emotion)
-    // Group 3: Attributes
-    // Group 4: Self-closing slash
     const tagRegex = /<(\/?)([a-zA-Z0-9\-\_\.\:]+)([^>]*?)(\/?)>/g;
-    
-    const voidTags = new Set([
-        "area", "base", "br", "col", "embed", "hr", "img", "input", 
-        "link", "meta", "param", "source", "track", "wbr"
-    ]);
-
+    const voidTags = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
     let stack = [];
     let result = "";
     let lastIndex = 0;
@@ -102,52 +86,34 @@ function advancedHtmlFix(text) {
         lastIndex = tagRegex.lastIndex;
 
         if (voidTags.has(tagName) || isSelfClosing) {
-            result += fullTag;
-            continue;
+            result += fullTag; continue;
         }
 
         if (!isClose) {
-            // <open> -> Push Stack
             stack.push(tagName);
             result += fullTag;
         } else {
-            // </close>
             if (stack.length > 0) {
                 const top = stack[stack.length - 1];
-                
                 if (top === tagName) {
-                    // Match! -> Pop
-                    stack.pop();
-                    result += fullTag;
+                    stack.pop(); result += fullTag;
                 } else {
-                    // Mismatch! (Nesting Error)
                     const foundIndex = stack.lastIndexOf(tagName);
-                    
                     if (foundIndex !== -1) {
-                        // เจอคู่อยู่ลึกกว่านี้ -> ปิดลูกๆ ให้หมดก่อน
                         while (stack.length > foundIndex + 1) {
                             const unclosed = stack.pop();
                             result += `</${unclosed}>`; 
                         }
-                        stack.pop(); // ปิดตัวมันเอง
-                        result += fullTag;
-                    } else {
-                        // ไม่เจอคู่เลย (Orphan Close Tag) -> ลบทิ้งเพื่อความปลอดภัย
-                        // result += ""; 
+                        stack.pop(); result += fullTag;
                     }
                 }
             }
         }
     }
-
     result += text.substring(lastIndex);
-
-    // ปิดตกค้าง (Unclosed at end)
     while (stack.length > 0) {
-        const unclosed = stack.pop();
-        result += `</${unclosed}>`;
+        const unclosed = stack.pop(); result += `</${unclosed}>`;
     }
-
     return result;
 }
 
@@ -165,19 +131,16 @@ async function performSmartQuickFix() {
 
     const lastIndex = chat.length - 1;
     const originalText = chat[lastIndex].mes;
-
-    // ตรวจสอบ Think ก่อน
     const hasOpenThink = /<think>/i.test(originalText);
     const hasCloseThink = /<\/think>/i.test(originalText);
     
-    // เงื่อนไข: ถ้า Think พัง (มีเปิด ไม่มีปิด) -> บังคับเปิด Editor
+    // ถ้า Think พัง -> ส่งไป Editor ให้ User จิ้มจุดตัดเอง
     if (hasOpenThink && !hasCloseThink) {
-        toastr.warning("Think tag is broken! Opening editor...", "Safety First");
+        toastr.warning("Think tag is broken! Please set the 'Start Story' point in Editor.", "Manual Fix Required");
         openBlockEditor(); 
         return;
     }
 
-    // ถ้า Think ปกติ -> Auto Fix เลย
     const fixedText = advancedHtmlFix(originalText);
     if (fixedText !== originalText) {
         chat[lastIndex].mes = fixedText;
@@ -189,10 +152,9 @@ async function performSmartQuickFix() {
     }
 }
 
-// --- 3. UI Builder (Cute & Safe) ---
+// --- 3. UI Builder ---
 let targetMessageId = null;
 
-// Template สำหรับ Header ที่มี Author Pill (ใช้ซ้ำได้)
 const getHeaderHtml = (title, icon) => `
     <div class="healer-header" style="background: linear-gradient(90deg, var(--lavender-dark, #2a2730) 0%, rgba(42,39,48,0.9) 100%);">
         <div class="header-brand">
@@ -200,11 +162,10 @@ const getHeaderHtml = (title, icon) => `
             <div class="header-text"><span class="title" style="color: #fff;">${title}</span></div>
         </div>
         <div class="header-controls">
-            <div class="author-pill" style="border: 1px solid rgba(255,183,178,0.3); background: rgba(0,0,0,0.2);">
+             <div class="author-pill" style="border: 1px solid rgba(255,183,178,0.3); background: rgba(0,0,0,0.2);">
                 <img src="${authorConfig.avatarUrl}" onerror="this.style.display='none'" style="border: 1px solid #ffb7b2;">
                 <span class="author-name" style="color: #ffb7b2;">${authorConfig.name}</span>
             </div>
-            
             <div class="close-btn" onclick="$('#html-healer-modal').remove()" style="margin-left:5px;">
                 <i class="fa-solid fa-xmark"></i>
             </div>
@@ -224,7 +185,6 @@ function openHighlightFixer() {
     <div id="html-healer-modal" class="html-healer-overlay">
         <div class="html-healer-box" style="border: 1px solid rgba(166,177,225,0.4); box-shadow: 0 0 20px rgba(166,177,225,0.15);">
             ${getHeaderHtml("Split (Highlight)", '<i class="fa-solid fa-highlighter"></i>')}
-            
             <div class="healer-body">
                 <div class="view-section active">
                     <div class="editor-group main-group">
@@ -257,11 +217,9 @@ function openHighlightFixer() {
         
         const fullText = textarea.value;
         const selectedText = fullText.substring(start, end);
-        const fixedSegment = advancedHtmlFix(selectedText); // ใช้ logic ใหม่
+        const fixedSegment = advancedHtmlFix(selectedText);
         
-        if (fixedSegment === selectedText) {
-            toastr.info("Selection looks valid."); return;
-        }
+        if (fixedSegment === selectedText) { toastr.info("Selection looks valid."); return; }
         
         textarea.value = fullText.substring(0, start) + fixedSegment + fullText.substring(end);
         textarea.setSelectionRange(start, start + fixedSegment.length);
@@ -277,7 +235,7 @@ function openHighlightFixer() {
     });
 }
 
-// >>> Feature: Editor (Blocks) <<<
+// >>> Feature: Editor (Blocks - Manual Split Logic) <<<
 function openBlockEditor() {
     const context = SillyTavern.getContext();
     const chat = context.chat;
@@ -286,17 +244,11 @@ function openBlockEditor() {
     targetMessageId = chat.length - 1;
     const originalText = chat[targetMessageId].mes;
     
-    // Parse
+    // Parse เริ่มต้น
     const parseResult = parseSegments(originalText);
     initialSegments = parseResult.segments;
-    const isThinkBroken = parseResult.isThinkBroken;
-
     currentSegments = JSON.parse(JSON.stringify(initialSegments));
     
-    if (isThinkBroken) {
-        toastr.error("Warning: Unclosed <think> detected!", "Parsing Paused");
-    }
-
     const modalHtml = `
     <div id="html-healer-modal" class="html-healer-overlay">
         <div class="html-healer-box" style="border: 1px solid rgba(166,177,225,0.4); box-shadow: 0 0 20px rgba(166,177,225,0.15);">
@@ -308,25 +260,21 @@ function openBlockEditor() {
                 </div>
                 <div class="header-controls">
                     <button class="reset-btn" id="btn-reset-split" title="Reset" style="margin-right:5px;"><i class="fa-solid fa-rotate-left"></i></button>
-                    
-                    <div class="author-pill" style="border: 1px solid rgba(255,183,178,0.3); background: rgba(0,0,0,0.2);">
+                     <div class="author-pill" style="border: 1px solid rgba(255,183,178,0.3); background: rgba(0,0,0,0.2);">
                         <img src="${authorConfig.avatarUrl}" onerror="this.style.display='none'" style="border: 1px solid #ffb7b2;">
                         <span class="author-name" style="color: #ffb7b2;">${authorConfig.name}</span>
                     </div>
-
-                    <div class="close-btn" onclick="$('#html-healer-modal').remove()" style="margin-left:5px;">
-                        <i class="fa-solid fa-xmark"></i>
-                    </div>
+                    <div class="close-btn" onclick="$('#html-healer-modal').remove()" style="margin-left:5px;"><i class="fa-solid fa-xmark"></i></div>
                 </div>
             </div>
 
             <div class="segment-picker-area">
                 <div class="segment-scroller" id="segment-container"></div>
                 <div class="picker-instruction">
-                    ${isThinkBroken 
-                        ? '<span style="color:#ffb7b2;"><i class="fa-solid fa-triangle-exclamation"></i> Please close &lt;think&gt; first.</span>' 
-                        : '<i class="fa-solid fa-arrow-pointer"></i> Toggle: <b>Story → Think → UI</b>'
-                    }
+                    <span style="color:#ffb7b2; font-weight:bold;">
+                        <i class="fa-solid fa-flag"></i> Click Flag to set "Start Story Here"
+                    </span>
+                    <span style="opacity:0.5; margin-left:10px;">(Click box to toggle type)</span>
                 </div>
             </div>
             
@@ -339,7 +287,6 @@ function openBlockEditor() {
                         </div>
                         <textarea id="editor-cot" placeholder="<think>...</think>"></textarea>
                     </div>
-
                     <div class="editor-group ui-group" style="border-color: #ffb7b2;">
                         <div class="group-toolbar" style="background: rgba(255, 183, 178, 0.1);">
                             <span class="label" style="color: #ffb7b2;"><i class="fa-solid fa-code"></i> UI / Tags</span>
@@ -349,7 +296,6 @@ function openBlockEditor() {
                         </div>
                         <textarea id="editor-ui" placeholder="<custom.tag>...</custom.tag>" style="color:#ffccbc;"></textarea>
                     </div>
-
                     <div class="editor-group main-group" style="border-color: rgba(152, 195, 121, 0.3);">
                         <div class="group-toolbar">
                             <span class="label" style="color:#98c379;"><i class="fa-solid fa-comments"></i> Story</span>
@@ -372,19 +318,37 @@ function openBlockEditor() {
     $(document.body).append(modalHtml);
     renderSegments();
 
-    $('#segment-container').on('click', '.segment-block', function() {
-        if (isThinkBroken) {
-             toastr.warning("Fix <think> tag first!");
-             return; 
-        }
+    // 1. Click Block Body -> Toggle Type (Cycle)
+    $('#segment-container').on('click', '.segment-block', function(e) {
+        // ถ้ากดโดนปุ่ม Flag ให้ข้ามไป event ของปุ่ม Flag แทน
+        if ($(e.target).closest('.seg-action').length > 0) return;
 
         const id = $(this).data('id');
         const seg = currentSegments.find(s => s.id === id);
         if (seg.type === 'story') seg.type = 'think';
         else if (seg.type === 'think') seg.type = 'ui';
         else seg.type = 'story';
-        
         renderSegments(); 
+    });
+
+    // 2. Click Flag -> Set Start Story Here
+    $('#segment-container').on('click', '.seg-action', function(e) {
+        e.stopPropagation(); // ไม่ให้ trigger toggle
+        const startId = $(this).closest('.segment-block').data('id');
+        
+        // LOGIC ผ่าตัด:
+        // ตั้งแต่ 0 ถึง startId-1  -> เป็น THINK
+        // ตั้งแต่ startId เป็นต้นไป -> เป็น STORY
+        currentSegments.forEach(seg => {
+            if (seg.id < startId) {
+                seg.type = 'think';
+            } else {
+                seg.type = 'story';
+            }
+        });
+
+        toastr.info("Set Start Story Point! Previous text marked as Thinking.");
+        renderSegments();
     });
 
     $('#btn-reset-split').on('click', () => {
@@ -450,8 +414,11 @@ function renderSegments() {
         container.append(`
             <div class="segment-block ${colorClass}" data-id="${seg.id}" style="${style}">
                 <div class="seg-icon">${icon}</div>
-                <div class="seg-text">${seg.text.substring(0, 50)}...</div>
-                <div class="seg-badge">${seg.type.toUpperCase()}</div>
+                <div class="seg-text">${seg.text.substring(0, 50) || "(empty line)"}...</div>
+                
+                <div class="seg-action" title="Start Story Here (Everything before becomes Think)">
+                    <i class="fa-solid fa-flag"></i>
+                </div>
             </div>
         `);
     });
@@ -465,6 +432,7 @@ function renderSegments() {
     $('#editor-main').val(storyText);
     
     if (!uiText) $('.ui-group').hide(); else $('.ui-group').show();
+    // ถ้าไม่มี think ให้ซ่อนไปก่อน แต่ถ้า user กำหนดจุดตัดเดี๋ยวกล่องจะโผล่มาเอง
     if (!thinkText) $('.think-group').hide(); else $('.think-group').show();
     
     updateCounts();
@@ -489,11 +457,11 @@ function loadSettings() {
                     <div class="styled_description_block">Editor by ${authorConfig.name}</div>
                     <div style="display:flex; gap:5px; margin-top:5px;">
                         
-                        <div id="html-healer-quick-fix" class="menu_button" style="flex:1; background-color: var(--smart-theme-color, #4caf50);" title="Fix HTML tags (checks broken think first)">
+                        <div id="html-healer-quick-fix" class="menu_button" style="flex:1; background-color: var(--smart-theme-color, #4caf50);" title="Fix HTML tags">
                             <i class="fa-solid fa-wand-magic-sparkles"></i> Auto
                         </div>
 
-                        <div id="html-healer-open-editor" class="menu_button" style="flex:1;" title="Separate Think / UI / Story">
+                        <div id="html-healer-open-editor" class="menu_button" style="flex:1;" title="Manage Think/Story Segments">
                             <i class="fa-solid fa-layer-group"></i> Editor
                         </div>
 
@@ -503,7 +471,7 @@ function loadSettings() {
 
                     </div>
                     <small style="opacity:0.6; display:block; margin-top:5px; text-align:center;">
-                        Auto: Smart Fix | Editor: Blocks | Split: Select & Fix
+                        Auto: Fix Tags | Editor: Set Start Story | Split: Select & Fix
                     </small>
                 </div>
             </div>
