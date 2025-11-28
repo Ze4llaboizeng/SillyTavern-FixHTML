@@ -164,29 +164,7 @@ const getHeaderHtml = (title, icon) => `
     </div>
 `;
 
-// Feature: Split (Highlight) - คงเดิมไว้
-function openHighlightFixer() {
-    const context = SillyTavern.getContext();
-    const chat = context.chat;
-    if (!chat || chat.length === 0) return toastr.warning("No messages.");
-    targetMessageId = chat.length - 1;
-    const originalText = chat[targetMessageId].mes;
-
-    const modalHtml = `
-    <div id="html-healer-modal" class="html-healer-overlay">
-        <div class="html-healer-box" style="border: 1px solid rgba(144, 202, 249, 0.4); box-shadow: 0 0 20px rgba(144, 202, 249, 0.15);">
-            ${getHeaderHtml("Split (Highlight)", '<i class="fa-solid fa-highlighter"></i>')}
-            <div class="healer-body">
-                <div class="view-section active">
-                    <div class="editor-group main-group" style="border-color: #90caf9;">
-                        <div class="group-toolbar" style="background: rgba(144, 202, 249, 0.1);">
-                            <span class="label" style="color:#90caf9;"><i class="fa-solid fa-i-cursor"></i> Highlight broken part</span>
-                            <div class="toolbar-actions">
-                                <button class="action-btn" id="btn-heal-selection" style="background:#90caf9; color:#222; border:none; font-weight:bold;">
-                                    <i class="fa-solid fa-wand-magic-sparkles"></i> Fix Selection
-                                </button>
-                            </div>
-                      // Feature: Split (Highlight) - แก้ไขให้กดทีเดียวติด + แจ้งเตือนเสมอ
+// Feature: Split (Highlight) - แก้ไขให้คลิกทีเดียวติด
 function openHighlightFixer() {
     const context = SillyTavern.getContext();
     const chat = context.chat;
@@ -222,47 +200,41 @@ function openHighlightFixer() {
     </div>`;
     $(document.body).append(modalHtml);
 
-    // Logic การกดปุ่ม Fix Selection (ปรับปรุงใหม่)
+    // ป้องกันปุ่มขโมยโฟกัสตอนกด (สำคัญมากสำหรับปุ่มที่ทำงานกับ Selection)
+    $('#btn-heal-selection').on('mousedown', function(e) {
+        e.preventDefault();
+    });
+
     $('#btn-heal-selection').on('click', () => {
+        const textarea = document.getElementById('editor-targeted');
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        
+        // ถ้าไม่ได้คลุมดำเลย ให้แจ้งเตือน
+        if (start === end) return toastr.warning("Please highlight code first!");
+        
+        const fullText = textarea.value;
+        const selectedText = fullText.substring(start, end);
+        
         try {
-            const textarea = document.getElementById('editor-targeted');
-            
-            // 1. บังคับ Focus ก่อนอ่านค่า Selection เพื่อแก้บั๊กกดรอบแรกไม่ติด
-            textarea.focus(); 
-
-            const start = textarea.selectionStart;
-            const end = textarea.selectionEnd;
-
-            // เช็คว่ามีการคลุมข้อความจริงไหม
-            if (start === end) {
-                return toastr.warning("Please highlight code first!", "No Selection");
-            }
-            
-            const fullText = textarea.value;
-            const selectedText = fullText.substring(start, end);
-            
-            // ส่งไปซ่อม
             const fixedSegment = advancedHtmlFix(selectedText);
             
-            // เช็คผลลัพธ์
             if (fixedSegment === selectedText) { 
-                // ถ้าเหมือนเดิมเป๊ะ แสดงว่าไม่มีอะไรต้องแก้
-                toastr.info("No HTML errors found in selection.", "Looks Good"); 
+                toastr.info("Selection looks valid."); 
                 return; 
             }
             
-            // แทนที่ข้อความเดิมด้วยข้อความที่ซ่อมแล้ว
+            // แทนที่ข้อความและคง Selection ไว้ที่เดิม
             const newText = fullText.substring(0, start) + fixedSegment + fullText.substring(end);
-            textarea.value = newText;
+            $(textarea).val(newText).trigger('input'); // trigger input เพื่อให้ระบบรู้ว่าแก้แล้ว
             
-            // คลุมข้อความใหม่ (Highlight ส่วนที่แก้แล้วให้ดู)
             textarea.setSelectionRange(start, start + fixedSegment.length);
+            textarea.focus();
             
-            toastr.success("HTML Tags Fixed!", "Success");
-            
-        } catch (e) {
-            console.error(e);
-            toastr.error("An error occurred: " + e.message, "Error");
+            toastr.success("Fixed!");
+        } catch (err) {
+            console.error(err);
+            toastr.error("Error fixing selection.");
         }
     });
 
