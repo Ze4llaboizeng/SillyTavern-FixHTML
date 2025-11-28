@@ -203,92 +203,99 @@ const STANDARD_TAGS_LIST = new Set([
     "wbr", "font", "center", "strike", "tt", "big", "think" // include think to ignore learning it
 ]);
 
+// แทนที่ฟังก์ชัน smartLineFix ของเดิมด้วยอันนี้
 function smartLineFix(fullText) {
     if (!fullText) return "";
-    addLog("Starting Hybrid Code Fix...", "info");
-    const lines = fullText.split('\n');
-    let resultLines = [];
-    
+    addLog("Starting Robust Stack Fix (New Core)...", "info");
+
+    // 1. Tokenize: แยกข้อความออกจาก Tag ด้วย Regex
+    // จับแพทเทิร์น <tag...> หรือ </tag>
+    const tagRegex = /(<\/?(?:[a-zA-Z0-9\.\-\_:]+)[^>]*>)/g;
+    const tokens = fullText.split(tagRegex);
+
+    // รายชื่อ Tag ที่ไม่ต้องมีตัวปิด (Void Elements)
     const voidTags = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
-    const inlineTags = new Set(["span", "b", "i", "u", "s", "strong", "em", "font", "a", "code", "small", "big", "sub", "sup"]);
-    const tagRegex = /<\/?([a-zA-Z0-9\.\-\_:]+)[^>]*>/g;
     
-    let blockStack = [];
+    let stack = [];     // จำ Tag ที่เปิดค้างไว้
+    let fixedText = ""; // เก็บผลลัพธ์ที่แก้แล้ว
 
-    for (let i = 0; i < lines.length; i++) {
-        let line = lines[i];
-        if (!line.trim()) { resultLines.push(line); continue; }
+    for (let token of tokens) {
+        if (!token) continue; // ข้ามถ้าเป็น string ว่าง
 
-        const currentIndent = line.search(/\S|$/);
-        
-        let autoClosedBlocks = "";
-        while (blockStack.length > 0) {
-            const last = blockStack[blockStack.length - 1];
-            if (currentIndent <= last.indent) {
-                autoClosedBlocks += `</${last.tag}>`;
-                blockStack.pop();
-            } else { break; }
-        }
-        
-        if (autoClosedBlocks) {
-            let prevIdx = resultLines.length - 1;
-            while(prevIdx >= 0 && !resultLines[prevIdx].trim()) prevIdx--;
-            if (prevIdx >= 0) resultLines[prevIdx] += autoClosedBlocks;
-            else line = autoClosedBlocks + line;
-        }
+        // เช็คว่าเป็น Tag หรือไม่ (ต้องเริ่มด้วย < และจบด้วย >)
+        if (token.startsWith("<") && token.endsWith(">")) {
+            // ดึงชื่อ Tag ออกมา เช่น <div class="..."> -> ได้ div
+            const match = token.match(/^<\/?([a-zA-Z0-9\.\-\_:]+)/);
+            if (!match) {
+                fixedText += token; // แกะชื่อไม่ออก ตีว่าเป็นข้อความปกติ
+                continue;
+            }
 
-        let lineStack = []; 
-        let match;
-        tagRegex.lastIndex = 0;
-
-        while ((match = tagRegex.exec(line)) !== null) {
-            const fullTag = match[0];
             const tagName = match[1].toLowerCase();
+            const isClosing = token.startsWith("</");
 
+            // ตรวจสอบว่าเป็น Tag ที่เรารู้จักหรือไม่ (Standard หรือ Custom)
             const isStandard = STANDARD_TAGS_LIST.has(tagName);
             const isCustom = userCustomTags.has(tagName);
-            if (!isStandard && !isCustom) continue;
-            if (voidTags.has(tagName)) continue;
 
-            if (fullTag.startsWith("</")) {
-                let foundInLine = -1;
-                for (let k = lineStack.length - 1; k >= 0; k--) {
-                    if (lineStack[k] === tagName) { foundInLine = k; break; }
+            // ถ้าเป็น Tag แปลกปลอมที่ไม่รู้จัก ให้ปล่อยผ่านเป็นข้อความเดิม (ไม่เอาเข้า Stack)
+            if (!isStandard && !isCustom) {
+                fixedText += token;
+                continue;
+            }
+
+            if (voidTags.has(tagName)) {
+                // เป็น Tag เดี่ยว (เช่น <br>, <img>) ไม่ต้องทำอะไรกับ Stack
+                fixedText += token;
+            } else if (isClosing) {
+                // --- กรณีเจอ Tag ปิด (เช่น </div>) ---
+                
+                // ค้นหาว่า Tag นี้เคยเปิดไว้ใน Stack หรือไม่ (หาจากบนลงล่าง)
+                let foundIdx = -1;
+                for (let i = stack.length - 1; i >= 0; i--) {
+                    if (stack[i] === tagName) {
+                        foundIdx = i;
+                        break;
+                    }
                 }
-                if (foundInLine !== -1) {
-                    lineStack.splice(foundInLine, lineStack.length - foundInLine);
+
+                if (foundIdx !== -1) {
+                    // เจอว่าเคยเปิดไว้! 
+                    // กฎ: ต้องปิด Tag ลูกๆ ที่ซ้อนอยู่เหนือมันให้หมดก่อน (Auto-close children)
+                    while (stack.length > foundIdx + 1) {
+                        const top = stack.pop();
+                        fixedText += `</${top}>`; // ปิดลูกที่ลืมปิด
+                    }
+                    
+                    // พอปิดลูกหมดแล้ว ก็ปิดตัวมันเอง
+                    stack.pop(); // เอาออกจาก Stack
+                    fixedText += token; // ใส่ Tag ปิดลงในข้อความ
                 } else {
-                    let foundInBlock = -1;
-                    for (let k = blockStack.length - 1; k >= 0; k--) {
-                        if (blockStack[k].tag === tagName) { foundInBlock = k; break; }
-                    }
-                    if (foundInBlock !== -1) {
-                        blockStack.splice(foundInBlock, blockStack.length - foundInBlock);
-                    }
+                    // ไม่เจอใน Stack แสดงว่าเป็น Tag ปิดที่ไม่มีตัวเปิด (Stray closing tag)
+                    // วิธีแก้: ลบทิ้งไปเลย เพื่อความสะอาดของ HTML
+                    // fixedText += ""; 
+                    // (หรือถ้าอยากเก็บไว้ให้เอาคอมเมนต์บรรทัดล่างออก)
+                    // fixedText += token; 
                 }
             } else {
-                if (inlineTags.has(tagName)) {
-                    lineStack.push(tagName);
-                } else {
-                    blockStack.push({ tag: tagName, indent: currentIndent });
-                }
+                // --- กรณีเจอ Tag เปิด (เช่น <div>) ---
+                stack.push(tagName); // ใส่เข้า Stack รอวันปิด
+                fixedText += token;
             }
-        }
 
-        if (lineStack.length > 0) {
-            const closingInline = lineStack.reverse().map(t => `</${t}>`).join("");
-            line += closingInline;
+        } else {
+            // เป็นข้อความเนื้อเรื่องปกติ
+            fixedText += token;
         }
-        resultLines.push(line);
     }
 
-    if (blockStack.length > 0) {
-        const closingBlocks = blockStack.reverse().map(t => `</${t.tag}>`).join("");
-        if (resultLines.length > 0) resultLines[resultLines.length - 1] += closingBlocks;
-        else resultLines.push(closingBlocks);
+    // จบข้อความ: ถ้ายังมี Tag ค้างใน Stack ให้ปิดให้หมด (Auto-close remaining)
+    while (stack.length > 0) {
+        const top = stack.pop();
+        fixedText += `</${top}>`;
     }
-    
-    return resultLines.join('\n');
+
+    return fixedText;
 }
 
 function countWords(str) {
