@@ -1,181 +1,112 @@
-/* =========================================
-   1. SETTINGS PANEL (หน้าตั้งค่าเดิม)
-   ========================================= */
+/* --- 1. SETTINGS PANEL (หน้าตั้งค่า) --- */
 .html-healer-settings {
     margin-top: 10px;
     border-top: 1px solid rgba(128, 128, 128, 0.4);
     padding-top: 10px;
 }
 
-.healer-controls {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin: 10px 0;
-    padding: 0 5px;
-}
-
-.healer-controls label {
-    font-weight: bold;
-    font-size: 0.9em;
-    flex-grow: 1;
-}
-
-.healer-controls input {
-    width: 60px;
-    text-align: center;
-    padding: 5px;
-    border-radius: 5px;
-    border: 1px solid var(--smart-theme-border, #ccc);
-    background-color: var(--smart-theme-bg, #000);
-    color: var(--smart-theme-text, #fff);
-}
-
-.html-healer-settings .menu_button {
-    background-color: var(--smart-theme-color, #4caf50);
-    color: var(--smart-theme-text, #ffffff);
-    text-align: center;
-    font-weight: bold;
-    padding: 10px;
-    border-radius: 10px;
+/* --- 2. MAGIC WAND BUTTON (ปุ่มเวทมนตร์) --- */
+.healer-wand-btn {
     cursor: pointer;
-    border: 1px solid var(--smart-theme-border, transparent);
-    transition: filter 0.2s;
-    margin-top: 10px;
+    opacity: 0.6;
+    transition: all 0.2s ease-in-out;
+    margin: 0 4px;
+    color: var(--smart-theme-color, #98c379);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px; /* บังคับความกว้างให้เท่าปุ่มอื่น */
+    height: 30px;
+}
+.healer-wand-btn:hover {
+    opacity: 1;
+    transform: scale(1.15);
+    text-shadow: 0 0 8px var(--smart-theme-color, #98c379);
 }
 
-.html-healer-settings .styled_description_block {
-    opacity: 0.7;
-    font-size: 0.85rem;
-    padding: 0 5px;
+/* --- 3. POPOVER MENU (เมนูเด้ง) --- */
+.healer-popover {
+    position: fixed; /* ใช้ fixed เพื่อกันล้นจอ */
+    z-index: 99999;
+    background: var(--smart-theme-bg, #1e1b24);
+    border: 1px solid var(--smart-theme-border, #444);
+    border-radius: 6px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+    min-width: 200px;
+    font-family: sans-serif;
+    overflow: hidden;
+    animation: healer-fadein 0.15s ease-out;
 }
+@keyframes healer-fadein { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
 
-/* =========================================
-   2. MODAL EDITOR & UI (ส่วนที่เพิ่มใหม่)
-   ========================================= */
-:root {
-    --lavender-primary: #dcd6f7;
-    --lavender-secondary: #a6b1e1;
-    --lavender-border: rgba(166, 177, 225, 0.2);
-    --lavender-dark: #2a2730;
-    --lavender-darker: #1e1b24;
-    --lavender-text: #f4f4f8;
+.healer-menu-header {
+    background: rgba(0,0,0,0.2);
+    padding: 8px 12px;
+    font-size: 0.8em;
+    font-weight: bold;
+    color: var(--smart-theme-text-muted, #888);
+    border-bottom: 1px solid var(--smart-theme-border, #444);
+    display: flex; justify-content: space-between; align-items: center;
 }
+.healer-menu-item {
+    padding: 12px 15px;
+    cursor: pointer;
+    font-size: 0.95em;
+    color: var(--smart-theme-text, #eee);
+    display: flex; align-items: center; gap: 12px;
+    transition: background 0.2s;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+.healer-menu-item:hover { background: rgba(255,255,255,0.08); }
+.healer-menu-item:last-child { border-bottom: none; }
 
-.html-healer-box * { box-sizing: border-box; }
-
+/* --- 4. EDITOR MODAL (หน้าต่างแก้ไข) --- */
 .html-healer-overlay {
     position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-    z-index: 99999; background: rgba(0,0,0,0.85);
+    z-index: 99990; background: rgba(0,0,0,0.85);
     display: flex; align-items: center; justify-content: center;
     backdrop-filter: blur(4px);
-    padding: 10px;
 }
-
 .html-healer-box {
-    width: 100%; max-width: 900px; height: 90vh;
-    background: var(--lavender-darker);
-    border: 1px solid var(--lavender-border);
-    border-radius: 12px;
+    width: 90%; max-width: 900px; height: 85vh;
+    background: var(--smart-theme-bg, #1e1b24);
+    border: 1px solid var(--smart-theme-border, #444);
+    border-radius: 10px;
     display: flex; flex-direction: column;
-    box-shadow: 0 0 30px rgba(0,0,0,0.6);
-    overflow: hidden;
+    box-shadow: 0 0 40px rgba(0,0,0,0.8);
+    color: var(--smart-theme-text, #eee);
 }
-
-/* HEADER */
 .healer-header {
-    background: var(--lavender-dark); padding: 5px 10px;
+    background: rgba(0,0,0,0.3); padding: 12px 20px;
     display: flex; justify-content: space-between; align-items: center;
-    border-bottom: 1px solid var(--lavender-border); height: 55px; flex-shrink: 0;
+    border-bottom: 1px solid var(--smart-theme-border, #444);
+    font-size: 1.1em;
 }
-.header-brand { display: flex; gap: 8px; align-items: center; }
-.header-icon { font-size: 1.1em; color: var(--lavender-secondary); }
-.header-text .title { font-weight: bold; color: var(--lavender-text); font-size: 0.9em; }
+.healer-body { flex: 1; display: flex; flex-direction: column; padding: 15px; overflow: hidden; gap: 15px; }
 
-/* CONTROLS (Right Side) */
-.header-controls { 
-    display: flex; gap: 8px; align-items: center; margin-left: auto; flex-shrink: 0; 
+.editor-row { 
+    flex: 1; display: flex; flex-direction: column; 
+    border: 1px solid var(--smart-theme-border, #444); 
+    border-radius: 8px; overflow: hidden; background: rgba(0,0,0,0.2);
 }
-.close-btn { 
-    cursor: pointer; padding: 5px; color: var(--lavender-text); font-size: 1.2em;
-    display: flex; align-items: center; justify-content: center; height: 32px; width: 32px;
+.toolbar { 
+    background: rgba(255,255,255,0.05); padding: 8px 15px; 
+    font-size: 0.85em; font-weight: bold; color: var(--smart-theme-text-muted, #aaa); 
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid var(--smart-theme-border, #444);
 }
-.reset-btn {
-    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
-    color: #ddd; border-radius: 4px; padding: 0 8px; cursor: pointer; font-size: 0.9em;
-    height: 32px; display: flex; align-items: center; justify-content: center;
-}
-.author-pill {
-    display: flex; align-items: center; gap: 8px;
-    background: rgba(255, 255, 255, 0.05); padding: 0 10px 0 4px;
-    border-radius: 16px; border: 1px solid var(--lavender-border);
-    height: 32px; white-space: nowrap;
-}
-.author-pill img {
-    width: 24px; height: 24px; border-radius: 50%; object-fit: cover; flex-shrink: 0; display: block; 
-}
-.author-pill .author-name {
-    font-size: 0.8em; color: var(--lavender-text); font-weight: bold; line-height: 1; 
+textarea.healer-input {
+    flex: 1; width: 100%; border: none; background: transparent; 
+    color: var(--smart-theme-text, #ddd); padding: 15px; 
+    resize: none; font-family: 'Consolas', monospace; outline: none;
+    font-size: 14px; line-height: 1.5;
 }
 
-/* SEGMENT PICKER */
-.segment-picker-area {
-    padding: 5px; background: rgba(0,0,0,0.2);
-    border-bottom: 1px solid var(--lavender-border);
-    height: 140px; display: flex; flex-direction: column; gap: 5px;
+.healer-footer { padding: 15px; border-top: 1px solid var(--smart-theme-border, #444); text-align: right; background: rgba(0,0,0,0.2); }
+.btn-save { 
+    background: var(--smart-theme-color, #98c379); 
+    color: var(--smart-theme-text-buttons, #222); 
+    border: none; padding: 10px 25px; border-radius: 6px; 
+    font-weight: bold; cursor: pointer; transition: filter 0.2s;
 }
-.segment-scroller { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
-.picker-instruction { font-size: 0.75em; color: #888; text-align: center; }
-
-.segment-block {
-    display: flex; align-items: center; gap: 8px; padding: 8px; 
-    border-radius: 4px; cursor: pointer; border: 1px solid transparent;
-    font-size: 0.8em; background: rgba(255,255,255,0.03); position: relative; min-height: 35px;
-}
-.segment-block.type-think { border-color: var(--lavender-secondary); background: rgba(166, 177, 225, 0.1); opacity: 0.7; }
-.segment-block.type-story { border-color: rgba(152, 195, 121, 0.4); background: rgba(152, 195, 121, 0.1); font-weight: bold;}
-.seg-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ddd; }
-.seg-badge { background: #98c379; color: #222; font-size: 0.7em; padding: 1px 5px; border-radius: 4px; font-weight: bold; }
-
-/* EDITOR BODY */
-.healer-body { flex: 1; display: flex; overflow: hidden; }
-.view-section { flex: 1; display: flex; flex-direction: column; padding: 5px; gap: 5px; }
-.editor-group { flex: 1; display: flex; flex-direction: column; border: 1px solid var(--lavender-border); border-radius: 6px; }
-.group-toolbar {
-    padding: 5px; background: rgba(0,0,0,0.2); display: flex; justify-content: space-between; align-items: center;
-}
-.label { font-size: 0.8em; font-weight: bold; color: var(--lavender-secondary); }
-.toolbar-actions { display: flex; gap: 5px; align-items: center; }
-.word-count { font-size: 0.65em; color: #666; }
-.action-btn { background: none; border: 1px solid #444; color: #ccc; border-radius: 4px; cursor: pointer; font-size: 0.7em; padding: 2px 5px; }
-textarea { flex: 1; width: 100%; border: none; background: transparent; color: #eee; padding: 8px; resize: none; outline: none; font-family: monospace; font-size: 13px; }
-
-/* FOOTER */
-.healer-footer {
-    padding: 8px 10px; background: var(--lavender-dark); border-top: 1px solid var(--lavender-border);
-    display: flex; justify-content: center; align-items: center;
-    padding-bottom: max(8px, env(safe-area-inset-bottom));
-}
-.save-button {
-    background: var(--lavender-secondary); color: #222; border: none; padding: 10px 0; 
-    border-radius: 8px; font-weight: bold; cursor: pointer; width: 100%; font-size: 1em;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-}
-
-/* =========================================
-   3. MOBILE RESPONSIVE
-   ========================================= */
-@media screen and (max-width: 600px) {
-    /* Settings Panel Mobile */
-    .healer-controls { flex-direction: column; align-items: flex-start; gap: 5px; }
-    .healer-controls input { width: 100%; height: 40px; font-size: 1.1em; }
-    .html-healer-settings .menu_button { padding: 15px; font-size: 1.1em; }
-    .html-healer-settings .styled_description_block { font-size: 1em; }
-
-    /* Modal Editor Mobile */
-    .header-brand { display: none; } 
-    .header-controls { width: 100%; justify-content: space-between; }
-    .author-pill { flex: 1; justify-content: center; max-width: none; }
-    .author-pill .author-name { display: inline-block; }
-    .segment-picker-area { height: 150px; }
-}
+.btn-save:hover { filter: brightness(1.1); }
