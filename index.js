@@ -6,8 +6,7 @@ let userCustomTags = new Set();
 let aiSettings = {
     provider: 'main', // 'main' or 'gemini'
     apiKey: '',
-    model: 'gemini-1.5-flash'
-};
+    model: 'gemini-2.5-flash' };
 
 function loadSettingsData() {
     // Load Custom Tags
@@ -23,7 +22,9 @@ function loadSettingsData() {
     const storedAi = localStorage.getItem('html-healer-ai-settings');
     if (storedAi) {
         try {
-            aiSettings = JSON.parse(storedAi);
+            const parsed = JSON.parse(storedAi);
+            // Merge defaults in case of new fields
+            aiSettings = { ...aiSettings, ...parsed };
         } catch(e) { console.error("Failed to parse AI settings", e); }
     }
 
@@ -38,6 +39,7 @@ function updateSettingsUI() {
     if ($('#setting_ai_provider').length) {
         $('#setting_ai_provider').val(aiSettings.provider);
         $('#setting_gemini_key').val(aiSettings.apiKey);
+        $('#setting_gemini_model').val(aiSettings.model); // Load model name to UI
         
         // Show/Hide Gemini inputs
         if (aiSettings.provider === 'gemini') {
@@ -56,7 +58,8 @@ function saveAllSettings() {
     // Save AI
     aiSettings.provider = $('#setting_ai_provider').val();
     aiSettings.apiKey = $('#setting_gemini_key').val().trim();
-    // aiSettings.model is hardcoded to flash mostly, or could be input
+    aiSettings.model = $('#setting_gemini_model').val().trim() || 'gemini-2.5-flash'; // Save model name
+    
     localStorage.setItem('html-healer-ai-settings', JSON.stringify(aiSettings));
 
     loadSettingsData();
@@ -226,7 +229,8 @@ function countWords(str) {
 async function callGeminiAPI(prompt, apiKey) {
     if (!apiKey) throw new Error("Missing Gemini API Key in settings.");
     
-    const model = aiSettings.model || "gemini-1.5-flash";
+
+    const model = aiSettings.model || "gemini-2.5-flash";
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
     
     const payload = {
@@ -276,12 +280,10 @@ ${mainText}
     try {
         let fixedText = "";
 
-        // เลือกวิธีส่งตาม Setting
         if (aiSettings.provider === 'gemini') {
             console.log(`[HTML-Healer] Using Direct Gemini (${aiSettings.model})`);
             fixedText = await callGeminiAPI(prompt, aiSettings.apiKey);
         } else {
-            // Default: Main API
             if (typeof generateQuietPrompt !== 'function') {
                 return toastr.error("Cannot access ST Main API.");
             }
@@ -291,11 +293,10 @@ ${mainText}
         
         if (fixedText) {
             let cleanFixed = fixedText.trim();
-            // ลบ Markdown ออก
             cleanFixed = cleanFixed.replace(/^```html\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '');
             
             $('#editor-main').val(cleanFixed).trigger('input');
-            toastr.success(`AI Fix Applied (${aiSettings.provider === 'gemini' ? 'Gemini' : 'Main API'})!`);
+            toastr.success(`AI Fix Applied (${aiSettings.provider === 'gemini' ? aiSettings.model : 'Main API'})!`);
         } else {
             toastr.warning("AI returned empty response.");
         }
@@ -541,8 +542,11 @@ function loadSettings() {
                         
                         <div class="gemini-settings" style="display:none; margin-top:10px; padding-left:10px; border-left:2px solid #4caf50;">
                             <label style="font-size:0.85em;">Gemini API Key:</label>
-                            <input type="password" id="setting_gemini_key" class="text_pole" style="width:100%;" placeholder="AIzaSy...">
-                            <small style="opacity:0.6;">Uses 'gemini-1.5-flash' model</small>
+                            <input type="password" id="setting_gemini_key" class="text_pole" style="width:100%; margin-bottom:5px;" placeholder="AIzaSy...">
+                            
+                            <label style="font-size:0.85em;">Model Name:</label>
+                            <input type="text" id="setting_gemini_model" class="text_pole" style="width:100%;" placeholder="gemini-2.5-flash">
+                            <small style="opacity:0.6; display:block; margin-top:2px;">Type any available model ID (e.g. gemini-2.5-flash-exp)</small>
                         </div>
                     </div>
 
