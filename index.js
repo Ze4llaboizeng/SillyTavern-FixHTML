@@ -10,7 +10,7 @@ const authorConfig = {
     avatarUrl: "scripts/extensions/third-party/SillyTavern-FixHTML/avatar.png"
 };
 
-// แยกส่วนประกอบ
+// แยกส่วนประกอบ: Thinking / UI / Story (เหมือนเดิม)
 function parseSegments(rawText) {
     if (!rawText) return { segments: [], isThinkBroken: false };
     
@@ -55,6 +55,7 @@ function parseSegments(rawText) {
     return { segments, isThinkBroken };
 }
 
+// Logic แก้ HTML ขั้นสูง (เหมือนเดิม)
 function advancedHtmlFix(text) {
     if (!text) return "";
     const tagRegex = /<(\/?)([a-zA-Z0-9\-\_\.\:]+)([^>]*?)(\/?)>/g;
@@ -111,7 +112,7 @@ function countWords(str) {
     return str.trim().split(/\s+/).length;
 }
 
-// --- 2. Smart Action ---
+// --- 2. Smart Action (Auto Fix) ---
 async function performSmartQuickFix() {
     const context = SillyTavern.getContext();
     const chat = context.chat;
@@ -122,6 +123,7 @@ async function performSmartQuickFix() {
     const hasOpenThink = /<think>/i.test(originalText);
     const hasCloseThink = /<\/think>/i.test(originalText);
     
+    // Logic: ถ้า Think พัง -> บังคับไป Editor
     if (hasOpenThink && !hasCloseThink) {
         toastr.warning("Think is broken! Please set 'Start Story' in Editor.", "Fix Required");
         openBlockEditor(); 
@@ -160,7 +162,7 @@ const getHeaderHtml = (title, icon) => `
     </div>
 `;
 
-// Feature: Split (Highlight)
+// Feature: Split (Highlight) - เหมือนเดิม
 function openHighlightFixer() {
     const context = SillyTavern.getContext();
     const chat = context.chat;
@@ -222,7 +224,7 @@ function openHighlightFixer() {
     });
 }
 
-// Feature: Editor (Blocks - Blue/Green Logic)
+// Feature: Editor (Blocks - Manual Split Logic - NEW)
 function openBlockEditor() {
     const context = SillyTavern.getContext();
     const chat = context.chat;
@@ -242,7 +244,7 @@ function openBlockEditor() {
             <div class="healer-header" style="background: linear-gradient(90deg, var(--lavender-dark, #2a2730) 0%, rgba(42,39,48,0.9) 100%);">
                 <div class="header-brand">
                     <div class="header-icon" style="color: #90caf9;"><i class="fa-solid fa-layer-group"></i></div>
-                    <div class="header-text"><span class="title" style="color: #fff;">Editor</span></div>
+                    <div class="header-text"><span class="title" style="color: #fff;">Editor (Clean Cut)</span></div>
                 </div>
                 <div class="header-controls">
                     <button class="reset-btn" id="btn-reset-split" title="Reset" style="margin-right:5px;"><i class="fa-solid fa-rotate-left"></i></button>
@@ -258,9 +260,9 @@ function openBlockEditor() {
                 <div class="segment-scroller" id="segment-container"></div>
                 <div class="picker-instruction" style="background: rgba(30,30,40,0.9); border-top: 1px solid #444;">
                     <span style="color:#a5d6a7; font-weight:bold;">
-                        <i class="fa-solid fa-flag"></i> Click Flag to Start Story
+                        <i class="fa-solid fa-flag"></i> Click Flag to Start Story (Clean Cut)
                     </span>
-                    <span style="font-size: 0.8em; margin-left: 10px; color: #ccc;">(Everything above becomes Think)</span>
+                    <span style="font-size: 0.8em; margin-left: 10px; color: #ccc;">(Blue=Think, Green=Story. Click box to toggle UI/Tags)</span>
                 </div>
             </div>
             
@@ -276,7 +278,7 @@ function openBlockEditor() {
 
                     <div class="editor-group ui-group" style="border-color: #ffab91;">
                         <div class="group-toolbar" style="background: rgba(255, 171, 145, 0.15);">
-                            <span class="label" style="color: #ffab91;"><i class="fa-solid fa-code"></i> UI / Tags</span>
+                            <span class="label" style="color: #ffab91;"><i class="fa-solid fa-code"></i> UI / Tags (Orange)</span>
                             <div class="toolbar-actions">
                                 <button class="action-btn" id="btn-heal-ui" style="border-color:#ffab91; color:#ffab91;"><i class="fa-solid fa-wand-magic-sparkles"></i> Fix</button>
                             </div>
@@ -306,7 +308,7 @@ function openBlockEditor() {
     $(document.body).append(modalHtml);
     renderSegments();
 
-    // 1. Click Block -> Toggle Type (Cycle)
+    // 1. Click Block -> Toggle Type (Cycle: Story -> Think -> UI -> Story)
     $('#segment-container').on('click', '.segment-block', function(e) {
         if ($(e.target).closest('.seg-action').length > 0) return;
         const id = $(this).data('id');
@@ -317,12 +319,12 @@ function openBlockEditor() {
         renderSegments(); 
     });
 
-    // 2. Click Flag -> Set Start Story (Blue Top / Green Bottom)
+    // 2. Click Flag -> Set Start Story (Clean Cut Logic)
     $('#segment-container').on('click', '.seg-action', function(e) {
         e.stopPropagation(); 
         const startId = $(this).closest('.segment-block').data('id');
         
-        // LOGIC: สับครึ่ง
+        // LOGIC: สับครึ่ง (บังคับเป็น Think/Story เท่านั้น)
         currentSegments.forEach(seg => {
             if (seg.id < startId) {
                 seg.type = 'think'; // ข้างบนเป็น Think (Blue)
@@ -331,7 +333,7 @@ function openBlockEditor() {
             }
         });
 
-        toastr.success("Set Start Story! (Blue=Think, Green=Story)");
+        toastr.success("Clean Cut Applied! (Blue=Think, Green=Story)");
         renderSegments();
     });
 
@@ -383,7 +385,6 @@ function renderSegments() {
         let style = '';
         let badgeColor = '#ccc';
 
-        // --- Color Logic (Blue / Green) ---
         if (seg.type === 'think') { 
             icon = '<i class="fa-solid fa-brain"></i>'; 
             // BLUE STYLE
@@ -396,6 +397,7 @@ function renderSegments() {
             badgeColor = '#81c784';
         } else if (seg.type === 'ui') { 
             icon = '<i class="fa-solid fa-code"></i>'; 
+            // ORANGE STYLE
             style = 'border-left: 3px solid #ffab91; background: rgba(255, 171, 145, 0.1); color: #ffccbc;';
             badgeColor = '#ffab91';
         } 
@@ -407,7 +409,7 @@ function renderSegments() {
                     ${seg.text.substring(0, 60) || "(empty line)"}
                 </div>
                 
-                <div class="seg-action" title="Start Story Here" style="padding:5px 10px; border-radius:4px; background:rgba(255,255,255,0.1); cursor:pointer;">
+                <div class="seg-action" title="Start Story Here (Clean Cut)" style="padding:5px 10px; border-radius:4px; background:rgba(255,255,255,0.1); cursor:pointer;">
                     <i class="fa-solid fa-flag" style="color:${badgeColor};"></i>
                 </div>
             </div>
@@ -422,7 +424,6 @@ function renderSegments() {
     $('#editor-ui').val(uiText);
     $('#editor-main').val(storyText);
     
-    // Auto-hide empty boxes
     if (!uiText) $('.ui-group').hide(); else $('.ui-group').show();
     if (!thinkText) $('.think-group').hide(); else $('.think-group').show();
     
