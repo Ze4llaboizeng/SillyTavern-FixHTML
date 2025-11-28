@@ -10,7 +10,7 @@ const authorConfig = {
     avatarUrl: "scripts/extensions/third-party/SillyTavern-FixHTML/avatar.png"
 };
 
-// แยกส่วนประกอบ: Thinking / UI / Story (เหมือนเดิม)
+// แยกส่วนประกอบ: เหลือแค่ Think / Story (ตัด UI ออก)
 function parseSegments(rawText) {
     if (!rawText) return { segments: [], isThinkBroken: false };
     
@@ -26,7 +26,6 @@ function parseSegments(rawText) {
 
     let state = 'story'; 
     let segments = [];
-    const uiStartRegex = /^<(div|table|style|aside|section|main|header|footer|nav|article|details|summary|code|pre)/i;
     
     rawBlocks.forEach((line, index) => {
         let text = line.trim();
@@ -35,14 +34,12 @@ function parseSegments(rawText) {
             return;
         }
 
+        // Logic ตรวจจับแค่ Think กับ Story
         if (state === 'story') {
             if (/<think>/i.test(text)) state = 'think';
-            else if (!isThinkBroken && uiStartRegex.test(text)) state = 'ui';
         } else if (state === 'think') {
             if (/<\/think>/i.test(text)) state = 'story'; 
-        } else if (state === 'ui') {
-            if (/<think>/i.test(text)) state = 'think';
-        }
+        } 
 
         if (state === 'think' && /<\/think>/i.test(text)) {
              segments.push({ id: index, text: line, type: 'think' });
@@ -123,7 +120,6 @@ async function performSmartQuickFix() {
     const hasOpenThink = /<think>/i.test(originalText);
     const hasCloseThink = /<\/think>/i.test(originalText);
     
-    // Logic: ถ้า Think พัง -> บังคับไป Editor
     if (hasOpenThink && !hasCloseThink) {
         toastr.warning("Think is broken! Please set 'Start Story' in Editor.", "Fix Required");
         openBlockEditor(); 
@@ -224,7 +220,7 @@ function openHighlightFixer() {
     });
 }
 
-// Feature: Editor (Blocks - Manual Split Logic - NEW)
+// Feature: Editor (Blocks - Manual Split Logic - UPDATED)
 function openBlockEditor() {
     const context = SillyTavern.getContext();
     const chat = context.chat;
@@ -262,7 +258,7 @@ function openBlockEditor() {
                     <span style="color:#a5d6a7; font-weight:bold;">
                         <i class="fa-solid fa-flag"></i> Click Flag to Start Story (Clean Cut)
                     </span>
-                    <span style="font-size: 0.8em; margin-left: 10px; color: #ccc;">(Blue=Think, Green=Story. Click box to toggle UI/Tags)</span>
+                    <span style="font-size: 0.8em; margin-left: 10px; color: #ccc;">(Blue=Think, Green=Story)</span>
                 </div>
             </div>
             
@@ -274,16 +270,6 @@ function openBlockEditor() {
                             <span class="word-count" id="count-cot" style="color:#90caf9;">0w</span>
                         </div>
                         <textarea id="editor-cot" placeholder="Thinking process..." style="border-left: 2px solid #2196f3;"></textarea>
-                    </div>
-
-                    <div class="editor-group ui-group" style="border-color: #ffab91;">
-                        <div class="group-toolbar" style="background: rgba(255, 171, 145, 0.15);">
-                            <span class="label" style="color: #ffab91;"><i class="fa-solid fa-code"></i> UI / Tags (Orange)</span>
-                            <div class="toolbar-actions">
-                                <button class="action-btn" id="btn-heal-ui" style="border-color:#ffab91; color:#ffab91;"><i class="fa-solid fa-wand-magic-sparkles"></i> Fix</button>
-                            </div>
-                        </div>
-                        <textarea id="editor-ui" placeholder="UI Code..." style="color:#ffccbc; border-left: 2px solid #ffab91;"></textarea>
                     </div>
 
                     <div class="editor-group main-group" style="border-color: #66bb6a;">
@@ -308,23 +294,25 @@ function openBlockEditor() {
     $(document.body).append(modalHtml);
     renderSegments();
 
-    // 1. Click Block -> Toggle Type (Cycle: Story -> Think -> UI -> Story)
+    // 1. Click Block -> Toggle Type (Cycle: Story <-> Think) *เอา UI ออก*
     $('#segment-container').on('click', '.segment-block', function(e) {
         if ($(e.target).closest('.seg-action').length > 0) return;
         const id = $(this).data('id');
         const seg = currentSegments.find(s => s.id === id);
+        
+        // สลับแค่ Story กับ Think
         if (seg.type === 'story') seg.type = 'think';
-        else if (seg.type === 'think') seg.type = 'ui';
         else seg.type = 'story';
+        
         renderSegments(); 
     });
 
     // 2. Click Flag -> Set Start Story (Clean Cut Logic)
+    // ตรงตามโจทย์: จิ้มปุ๊บ ข้างบนเป็น Think หมด ข้างล่างเป็น Story หมด (Update ทับของเก่าทันที)
     $('#segment-container').on('click', '.seg-action', function(e) {
         e.stopPropagation(); 
         const startId = $(this).closest('.segment-block').data('id');
         
-        // LOGIC: สับครึ่ง (บังคับเป็น Think/Story เท่านั้น)
         currentSegments.forEach(seg => {
             if (seg.id < startId) {
                 seg.type = 'think'; // ข้างบนเป็น Think (Blue)
@@ -342,18 +330,10 @@ function openBlockEditor() {
         renderSegments();
     });
 
-    $('#btn-heal-ui').on('click', () => {
-        let val = $('#editor-ui').val();
-        let fixed = advancedHtmlFix(val);
-        $('#editor-ui').val(fixed).trigger('input');
-        toastr.success("Fixed UI HTML!");
-    });
-
-    $('#editor-cot, #editor-main, #editor-ui').on('input', updateCounts);
+    $('#editor-cot, #editor-main').on('input', updateCounts);
 
     $('#btn-save-split').on('click', async () => {
         let cot = $('#editor-cot').val().trim();
-        let ui = $('#editor-ui').val().trim();
         let main = $('#editor-main').val().trim();
         
         let parts = [];
@@ -362,7 +342,7 @@ function openBlockEditor() {
             if (!/<\/think>$/i.test(cot)) cot = `${cot}\n</think>`;
             parts.push(cot);
         }
-        if (ui) parts.push(ui);
+        // ไม่มีการ push UI
         if (main) parts.push(main);
 
         const finalMes = parts.join('\n\n');
@@ -390,16 +370,11 @@ function renderSegments() {
             // BLUE STYLE
             style = 'border-left: 3px solid #2196f3; background: rgba(33, 150, 243, 0.1); color: #90caf9;';
             badgeColor = '#64b5f6';
-        } else if (seg.type === 'story') {
-            // GREEN STYLE
+        } else {
+            // Default เป็น STORY (GREEN STYLE) แม้แต่ UI เก่าก็จะถูกมองเป็น Story หรือถูกเปลี่ยน type มาแล้ว
             icon = '<i class="fa-solid fa-comment"></i>';
             style = 'border-left: 3px solid #4caf50; background: rgba(76, 175, 80, 0.1); color: #a5d6a7;';
             badgeColor = '#81c784';
-        } else if (seg.type === 'ui') { 
-            icon = '<i class="fa-solid fa-code"></i>'; 
-            // ORANGE STYLE
-            style = 'border-left: 3px solid #ffab91; background: rgba(255, 171, 145, 0.1); color: #ffccbc;';
-            badgeColor = '#ffab91';
         } 
         
         container.append(`
@@ -417,14 +392,11 @@ function renderSegments() {
     });
 
     const thinkText = currentSegments.filter(s => s.type === 'think').map(s => s.text).join('\n');
-    const uiText = currentSegments.filter(s => s.type === 'ui').map(s => s.text).join('\n');
-    const storyText = currentSegments.filter(s => s.type === 'story').map(s => s.text).join('\n');
+    const storyText = currentSegments.filter(s => s.type !== 'think').map(s => s.text).join('\n'); // Anything not think is story
     
     $('#editor-cot').val(thinkText);
-    $('#editor-ui').val(uiText);
     $('#editor-main').val(storyText);
     
-    if (!uiText) $('.ui-group').hide(); else $('.ui-group').show();
     if (!thinkText) $('.think-group').hide(); else $('.think-group').show();
     
     updateCounts();
