@@ -1,107 +1,137 @@
-/* --- THEME VARIABLES --- */
+
+
 :root {
-    --healer-bg: #1e1b24;
-    --healer-border: #444;
-    --healer-text: #eee;
-    --healer-accent: #98c379;
-    --healer-highlight: rgba(255,255,255,0.05);
-    
-    /* Variables for original Settings Panel */
-    --smart-theme-color: #4caf50;
-    --smart-theme-text: #ffffff;
+    --lavender-primary: #dcd6f7;
+    --lavender-secondary: #a6b1e1;
+    --lavender-border: rgba(166, 177, 225, 0.2);
+    --lavender-dark: #2a2730;
+    --lavender-darker: #1e1b24;
+    --lavender-text: #f4f4f8;
 }
 
-/* =========================================
-   1. EXTENSION SETTINGS PANEL (หน้าตั้งค่าเดิม)
-   ========================================= */
-.html-healer-settings {
-    margin-top: 10px;
-    border-top: 1px solid rgba(128, 128, 128, 0.4);
-    padding-top: 10px;
-}
-.healer-controls {
-    display: flex; align-items: center; justify-content: space-between; margin: 10px 0; padding: 0 5px;
-}
-.html-healer-settings .menu_button {
-    background-color: var(--smart-theme-color, #4caf50);
-    color: var(--smart-theme-text, #ffffff);
-    text-align: center; font-weight: bold; padding: 10px;
-    border-radius: 10px; cursor: pointer; border: 1px solid transparent;
-    transition: filter 0.2s; margin-top: 10px;
-}
-.html-healer-settings .text_pole {
-    background-color: rgba(0, 0, 0, 0.3);
-    color: var(--smart-theme-text, #fff);
-    border: 1px solid #555;
-    padding: 5px; border-radius: 5px;
-}
-
-/* =========================================
-   2. MAGIC WAND BUTTON
-   ========================================= */
-.healer-wand-btn {
-    cursor: pointer; opacity: 0.6; transition: opacity 0.2s, transform 0.2s;
-    margin: 0 5px; color: var(--healer-accent); display: inline-block;
-}
-.healer-wand-btn:hover {
-    opacity: 1; transform: scale(1.1); text-shadow: 0 0 5px var(--healer-accent);
-}
-
-/* =========================================
-   3. POPOVER MENU (เมนูเด้ง)
-   ========================================= */
-.healer-popover {
-    position: absolute; z-index: 20000;
-    background: var(--healer-bg); border: 1px solid var(--healer-border);
-    border-radius: 6px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-    min-width: 180px; overflow: hidden;
-    animation: healer-fadein 0.1s ease-out; font-family: sans-serif;
-}
-@keyframes healer-fadein { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
-
-.healer-menu-header {
-    background: rgba(0,0,0,0.3); padding: 6px 10px;
-    font-size: 0.75em; font-weight: bold; color: #aaa;
-    border-bottom: 1px solid var(--healer-border);
-    display: flex; justify-content: space-between;
-}
-.healer-menu-item {
-    padding: 10px 12px; cursor: pointer; font-size: 0.9em;
-    color: var(--healer-text); display: flex; align-items: center; gap: 10px;
-    transition: background 0.2s; border-bottom: 1px solid rgba(255,255,255,0.05);
-}
-.healer-menu-item:hover { background: var(--healer-highlight); }
-.healer-menu-item i { width: 18px; text-align: center; }
-
-/* =========================================
-   4. MODAL EDITOR (หน้าต่างแยกส่วน)
-   ========================================= */
+.html-healer-box * { box-sizing: border-box; }
 .html-healer-overlay {
     position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
     z-index: 99999; background: rgba(0,0,0,0.85);
     display: flex; align-items: center; justify-content: center;
-    backdrop-filter: blur(3px);
+    backdrop-filter: blur(4px);
+    padding: 10px;
 }
+
 .html-healer-box {
-    width: 90%; max-width: 900px; height: 85vh;
-    background: var(--healer-bg); border: 1px solid var(--healer-border);
-    border-radius: 10px; display: flex; flex-direction: column;
-    box-shadow: 0 0 30px rgba(0,0,0,0.7);
+    width: 100%; max-width: 900px; height: 90vh;
+    background: var(--lavender-darker);
+    border: 1px solid var(--lavender-border);
+    border-radius: 12px;
+    display: flex; flex-direction: column;
+    box-shadow: 0 0 30px rgba(0,0,0,0.6);
+    overflow: hidden;
 }
+
+/* HEADER */
 .healer-header {
-    background: rgba(0,0,0,0.2); padding: 10px 15px;
+    background: var(--lavender-dark); padding: 5px 10px;
     display: flex; justify-content: space-between; align-items: center;
-    border-bottom: 1px solid var(--healer-border);
+    border-bottom: 1px solid var(--lavender-border); height: 55px; flex-shrink: 0;
 }
-.healer-body { flex: 1; display: flex; flex-direction: column; padding: 10px; overflow: hidden; gap: 10px; }
-.editor-row { flex: 1; display: flex; flex-direction: column; border: 1px solid var(--healer-border); border-radius: 6px; overflow: hidden; }
-.toolbar { background: rgba(0,0,0,0.2); padding: 5px 10px; font-size: 0.8em; font-weight: bold; color: #888; display: flex; justify-content: space-between; }
-textarea.healer-input {
-    flex: 1; width: 100%; border: none; background: transparent; 
-    color: #ddd; padding: 10px; resize: none; font-family: monospace; outline: none;
+.header-brand { display: flex; gap: 8px; align-items: center; }
+.header-icon { font-size: 1.1em; color: var(--lavender-secondary); }
+.header-text .title { font-weight: bold; color: var(--lavender-text); font-size: 0.9em; }
+
+/* CONTROLS (Right Side) */
+.header-controls { 
+    display: flex; gap: 8px; align-items: center; margin-left: auto; 
+    flex-shrink: 0; 
 }
-.healer-footer { padding: 10px; border-top: 1px solid var(--healer-border); text-align: right; }
-.btn-save { 
-    background: var(--healer-accent); color: #222; border: none; 
-    padding: 8px 20px; border-radius: 5px; font-weight: bold; cursor: pointer; 
+.close-btn { 
+    cursor: pointer; padding: 5px; color: var(--lavender-text); font-size: 1.2em;
+    display: flex; align-items: center; justify-content: center;
+    height: 32px; width: 32px;
+}
+.reset-btn {
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+    color: #ddd; border-radius: 4px; padding: 0 8px; cursor: pointer; font-size: 0.9em;
+    height: 32px;
+    display: flex; align-items: center; justify-content: center;
+}
+
+/* AUTHOR PILL */
+.author-pill {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 0 10px 0 4px;
+    border-radius: 16px;
+    border: 1px solid var(--lavender-border);
+    height: 32px;
+    white-space: nowrap;
+}
+.author-pill img {
+    width: 24px; height: 24px; border-radius: 50%; object-fit: cover;
+    flex-shrink: 0;
+    display: block; 
+}
+.author-pill .author-name {
+    font-size: 0.8em; color: var(--lavender-text); font-weight: bold;
+    line-height: 1; 
+}
+
+/* SEGMENT PICKER */
+.segment-picker-area {
+    padding: 5px; background: rgba(0,0,0,0.2);
+    border-bottom: 1px solid var(--lavender-border);
+    height: 140px; display: flex; flex-direction: column; gap: 5px;
+}
+.segment-scroller { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+.picker-instruction { font-size: 0.75em; color: #888; text-align: center; }
+
+.segment-block {
+    display: flex; align-items: center; gap: 8px; padding: 8px; 
+    border-radius: 4px; cursor: pointer; border: 1px solid transparent;
+    font-size: 0.8em; background: rgba(255,255,255,0.03);
+    position: relative;
+    min-height: 35px;
+}
+.segment-block.type-think { border-color: var(--lavender-secondary); background: rgba(166, 177, 225, 0.1); opacity: 0.7; }
+.segment-block.type-story { border-color: rgba(152, 195, 121, 0.4); background: rgba(152, 195, 121, 0.1); font-weight: bold;}
+.seg-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ddd; }
+.seg-badge { background: #98c379; color: #222; font-size: 0.7em; padding: 1px 5px; border-radius: 4px; font-weight: bold; }
+
+/* EDITOR BODY */
+.healer-body { flex: 1; display: flex; overflow: hidden; }
+.view-section { flex: 1; display: flex; flex-direction: column; padding: 5px; gap: 5px; }
+.editor-group { flex: 1; display: flex; flex-direction: column; border: 1px solid var(--lavender-border); border-radius: 6px; }
+.group-toolbar {
+    padding: 5px; background: rgba(0,0,0,0.2);
+    display: flex; justify-content: space-between; align-items: center;
+}
+.label { font-size: 0.8em; font-weight: bold; color: var(--lavender-secondary); }
+.toolbar-actions { display: flex; gap: 5px; align-items: center; }
+.word-count { font-size: 0.65em; color: #666; }
+.action-btn { background: none; border: 1px solid #444; color: #ccc; border-radius: 4px; cursor: pointer; font-size: 0.7em; padding: 2px 5px; }
+textarea { flex: 1; width: 100%; border: none; background: transparent; color: #eee; padding: 8px; resize: none; outline: none; font-family: monospace; font-size: 13px; }
+
+/* FOOTER */
+.healer-footer {
+    padding: 8px 10px; background: var(--lavender-dark);
+    border-top: 1px solid var(--lavender-border);
+    display: flex; justify-content: center; 
+    align-items: center;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+}
+.save-button {
+    background: var(--lavender-secondary); color: #222; border: none;
+    padding: 10px 0; 
+    border-radius: 8px; font-weight: bold; cursor: pointer;
+    width: 100%; 
+    font-size: 1em;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+/* MOBILE RESPONSIVE TWEAKS */
+@media screen and (max-width: 600px) {
+    .header-brand { display: none; } 
+    .header-controls { width: 100%; justify-content: space-between; }
+    .author-pill { flex: 1; justify-content: center; max-width: none; }
+    .author-pill .author-name { display: inline-block; }
+    .segment-picker-area { height: 150px; }
 }
