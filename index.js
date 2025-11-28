@@ -2,22 +2,15 @@ const extensionName = "html-healer";
 
 // --- 0. Global Settings & Persistence ---
 const DEFAULT_CUSTOM_TAGS = "scrollborad.zeal, neon-box, chat-bubble";
-
-// ค่า Default สำหรับ API แยก (เป็น OpenAI Compatible format ซึ่ง Gemini ก็รองรับ)
-const DEFAULT_API_URL = "https://api.openai.com/v1"; 
-const DEFAULT_API_KEY = "";
-const DEFAULT_MODEL = "gpt-3.5-turbo";
-
 let userCustomTags = new Set();
-let fixerSettings = {
-    useSeparateApi: false,
-    apiUrl: DEFAULT_API_URL,
-    apiKey: DEFAULT_API_KEY,
-    model: DEFAULT_MODEL
+let aiSettings = {
+    provider: 'main', // 'main' or 'gemini'
+    apiKey: '',
+    model: 'gemini-1.5-flash'
 };
 
 function loadSettingsData() {
-    // 1. Custom Tags
+    // Load Custom Tags
     const storedTags = localStorage.getItem('html-healer-custom-tags');
     const rawString = storedTags !== null ? storedTags : DEFAULT_CUSTOM_TAGS;
     userCustomTags.clear();
@@ -26,52 +19,48 @@ function loadSettingsData() {
         if (clean) userCustomTags.add(clean);
     });
 
-    // 2. Fixer API Settings
-    const storedFixer = localStorage.getItem('html-healer-fixer-settings');
-    if (storedFixer) {
-        fixerSettings = { ...fixerSettings, ...JSON.parse(storedFixer) };
+    // Load AI Settings
+    const storedAi = localStorage.getItem('html-healer-ai-settings');
+    if (storedAi) {
+        try {
+            aiSettings = JSON.parse(storedAi);
+        } catch(e) { console.error("Failed to parse AI settings", e); }
     }
 
-    // Update UI
+    // Update UI if open
     updateSettingsUI();
 }
 
-function saveCustomTags(str) {
-    localStorage.setItem('html-healer-custom-tags', str);
-    loadSettingsData();
-    toastr.success("Custom tags updated!");
-}
-
-function saveFixerSettings() {
-    fixerSettings.useSeparateApi = $('#healer_use_separate').is(':checked');
-    fixerSettings.apiUrl = $('#healer_api_url').val().trim().replace(/\/$/, ""); // ลบ / ท้ายสุดออก
-    fixerSettings.apiKey = $('#healer_api_key').val().trim();
-    fixerSettings.model = $('#healer_model_name').val().trim();
-    
-    localStorage.setItem('html-healer-fixer-settings', JSON.stringify(fixerSettings));
-    toastr.success("Fixer API settings saved!");
-}
-
 function updateSettingsUI() {
-    // Tags
     if ($('#setting_custom_tags').length) {
         $('#setting_custom_tags').val(Array.from(userCustomTags).join(', '));
     }
-    // Fixer API
-    if ($('#healer_use_separate').length) {
-        $('#healer_use_separate').prop('checked', fixerSettings.useSeparateApi);
-        $('#healer_api_url').val(fixerSettings.apiUrl);
-        $('#healer_api_key').val(fixerSettings.apiKey);
-        $('#healer_model_name').val(fixerSettings.model);
+    if ($('#setting_ai_provider').length) {
+        $('#setting_ai_provider').val(aiSettings.provider);
+        $('#setting_gemini_key').val(aiSettings.apiKey);
         
-        // Show/Hide details based on checkbox
-        toggleFixerDetails();
+        // Show/Hide Gemini inputs
+        if (aiSettings.provider === 'gemini') {
+            $('.gemini-settings').slideDown();
+        } else {
+            $('.gemini-settings').slideUp();
+        }
     }
 }
 
-function toggleFixerDetails() {
-    const isChecked = $('#healer_use_separate').is(':checked');
-    $('#healer_api_details').toggle(isChecked);
+function saveAllSettings() {
+    // Save Tags
+    const tagsVal = $('#setting_custom_tags').val();
+    localStorage.setItem('html-healer-custom-tags', tagsVal);
+    
+    // Save AI
+    aiSettings.provider = $('#setting_ai_provider').val();
+    aiSettings.apiKey = $('#setting_gemini_key').val().trim();
+    // aiSettings.model is hardcoded to flash mostly, or could be input
+    localStorage.setItem('html-healer-ai-settings', JSON.stringify(aiSettings));
+
+    loadSettingsData();
+    toastr.success("Settings Saved!");
 }
 
 // --- 1. Logic (Analysis & Fix) ---
@@ -126,7 +115,7 @@ function applySplitPoint(startIndex) {
     });
 }
 
-// --- HYBRID FIX LOGIC ---
+// --- HYBRID FIX LOGIC (Manual/Regex Backup) ---
 function smartLineFix(fullText) {
     if (!fullText) return "";
     const lines = fullText.split('\n');
@@ -232,60 +221,36 @@ function countWords(str) {
     return str.trim().split(/\s+/).length;
 }
 
-// --- 2. Logic: Smart Action (With AI) ---
+// --- 2. Logic: AI Action (Direct Gemini or Main) ---
 
-async function callSeparateApi(text) {
-    // ใช้ Fetch ยิงไปที่ OpenAI-Compatible Endpoint (เช่น Google AI Studio, OpenRouter, etc.)
-    const prompt = `You are a code repair assistant.
-Task: Fix the malformed HTML in the provided story text.
-Rules:
-1. Close unclosed tags.
-2. Fix broken attributes.
-3. DO NOT CHANGE THE STORY CONTENT at all.
-4. Return ONLY the fixed text. No explanations.
-
-Text:
-${text}`;
-
+async function callGeminiAPI(prompt, apiKey) {
+    if (!apiKey) throw new Error("Missing Gemini API Key in settings.");
+    
+    const model = aiSettings.model || "gemini-1.5-flash";
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    
     const payload = {
-        model: fixerSettings.model,
-        messages: [
-            { role: "system", content: "You are a helpful assistant that fixes HTML." },
-            { role: "user", content: prompt }
-        ],
-        temperature: 0.1 // เอาให้นิ่งที่สุด
+        contents: [{
+            parts: [{ text: prompt }]
+        }]
     };
 
-    // ตรวจสอบ URL ว่าต้องเติม /chat/completions ไหม (ถ้า user ใส่มาแค่ base)
-    let url = fixerSettings.apiUrl;
-    if (!url.endsWith('/chat/completions')) {
-        url = `${url}/chat/completions`;
+    const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error?.message || "Gemini API request failed.");
     }
 
+    const data = await response.json();
     try {
-        const response = await fetch(url, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${fixerSettings.apiKey}`
-            },
-            body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-            const err = await response.text();
-            throw new Error(`API Error: ${response.status} - ${err}`);
-        }
-
-        const data = await response.json();
-        if (data.choices && data.choices.length > 0) {
-            return data.choices[0].message.content;
-        } else {
-            throw new Error("No choices returned from API");
-        }
+        return data.candidates[0].content.parts[0].text;
     } catch (e) {
-        console.error(e);
-        throw e;
+        throw new Error("Unexpected response format from Gemini.");
     }
 }
 
@@ -293,37 +258,50 @@ async function performAiFix() {
     const mainText = $('#editor-main').val();
     if (!mainText || !mainText.trim()) return toastr.warning("No story text to fix.");
 
-    toastr.info(fixerSettings.useSeparateApi ? `Sending to ${fixerSettings.model}...` : "Sending to Main API...", "AI Fixing");
+    toastr.info("Sending to AI...", "Fixing HTML");
     
+    const prompt = `You are an expert HTML repair tool.
+Task: Fix the malformed HTML in the provided text below.
+Rules:
+1. Close any unclosed tags correctly.
+2. Fix broken attributes.
+3. DO NOT change the story content, dialogue, or descriptions.
+4. DO NOT add any conversational text.
+5. Return ONLY the raw fixed text.
+
+[TEXT START]
+${mainText}
+[TEXT END]`;
+
     try {
         let fixedText = "";
 
-        if (fixerSettings.useSeparateApi) {
-            // โหมดใช้โมเดลแยก
-            if (!fixerSettings.apiKey) return toastr.error("API Key for fixer is missing!");
-            fixedText = await callSeparateApi(mainText);
+        // เลือกวิธีส่งตาม Setting
+        if (aiSettings.provider === 'gemini') {
+            console.log(`[HTML-Healer] Using Direct Gemini (${aiSettings.model})`);
+            fixedText = await callGeminiAPI(prompt, aiSettings.apiKey);
         } else {
-            // โหมดใช้ Main API ของ SillyTavern
+            // Default: Main API
             if (typeof generateQuietPrompt !== 'function') {
-                return toastr.error("Cannot access Main API. Update SillyTavern.");
+                return toastr.error("Cannot access ST Main API.");
             }
-            const prompt = `Fix broken HTML tags in this text. Maintain original content exactly. Return only the fixed text.\n\n${mainText}`;
-            fixedText = await generateQuietPrompt(prompt, true, false);
+            console.log(`[HTML-Healer] Using Main API`);
+            fixedText = await generateQuietPrompt(prompt, true, false); 
         }
-
+        
         if (fixedText) {
             let cleanFixed = fixedText.trim();
-            // ล้าง Markdown Code Block ที่ AI ชอบแถมมา
+            // ลบ Markdown ออก
             cleanFixed = cleanFixed.replace(/^```html\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '');
             
             $('#editor-main').val(cleanFixed).trigger('input');
-            toastr.success("AI Fix Applied!");
+            toastr.success(`AI Fix Applied (${aiSettings.provider === 'gemini' ? 'Gemini' : 'Main API'})!`);
         } else {
             toastr.warning("AI returned empty response.");
         }
-
     } catch (err) {
-        toastr.error("AI Fix Failed: " + err.message);
+        console.error(err);
+        toastr.error("AI Fix Failed: " + err);
     }
 }
 
@@ -548,67 +526,57 @@ function loadSettings() {
                     <div class="styled_description_block">Editor by ${authorConfig.name}</div>
                     
                     <div style="margin: 10px 0;">
-                        <label style="font-weight:bold; font-size:0.9em;">Custom Tags (comma separated):</label>
+                        <label style="font-weight:bold; font-size:0.9em;">Custom Tags:</label>
                         <textarea id="setting_custom_tags" rows="2" 
                             style="width:100%; margin-top:5px; background:rgba(0,0,0,0.2); color:#fff; border:1px solid #444; border-radius:5px; padding:5px;"
                             placeholder="e.g. scrollborad.zeal, neon-box"></textarea>
-                        <button id="btn_save_tags" class="menu_button" style="margin-top:5px; padding:5px 10px; font-size:0.8em;">Save Tags</button>
                     </div>
-                    
-                    <hr style="opacity:0.2;">
 
                     <div style="margin: 10px 0;">
-                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-                            <input type="checkbox" id="healer_use_separate">
-                            <span style="font-weight:bold; font-size:0.9em;">Use Separate API for AI Fix?</span>
-                        </label>
+                        <label style="font-weight:bold; font-size:0.9em;">AI Provider for "AI Fix":</label>
+                        <select id="setting_ai_provider" class="text_pole" style="width:100%; margin-top:5px;">
+                            <option value="main">SillyTavern Main API (Default)</option>
+                            <option value="gemini">Direct Gemini API (Recommended)</option>
+                        </select>
                         
-                        <div id="healer_api_details" style="display:none; margin-top:10px; padding-left:10px; border-left:2px solid var(--smart-theme-color);">
-                            <div style="margin-bottom:5px;">
-                                <small>API URL (OpenAI Compatible):</small>
-                                <input type="text" id="healer_api_url" placeholder="[https://api.openai.com/v1](https://api.openai.com/v1)" 
-                                style="width:100%; background:rgba(0,0,0,0.2); border:1px solid #444; padding:3px; color:#ccc;">
-                            </div>
-                            <div style="margin-bottom:5px;">
-                                <small>API Key:</small>
-                                <input type="password" id="healer_api_key" placeholder="sk-..." 
-                                style="width:100%; background:rgba(0,0,0,0.2); border:1px solid #444; padding:3px; color:#ccc;">
-                            </div>
-                            <div style="margin-bottom:5px;">
-                                <small>Model Name:</small>
-                                <input type="text" id="healer_model_name" placeholder="gpt-3.5-turbo, gemini-1.5-flash" 
-                                style="width:100%; background:rgba(0,0,0,0.2); border:1px solid #444; padding:3px; color:#ccc;">
-                            </div>
-                            <button id="btn_save_fixer" class="menu_button" style="margin-top:5px; padding:5px 10px; font-size:0.8em;">Save API Settings</button>
+                        <div class="gemini-settings" style="display:none; margin-top:10px; padding-left:10px; border-left:2px solid #4caf50;">
+                            <label style="font-size:0.85em;">Gemini API Key:</label>
+                            <input type="password" id="setting_gemini_key" class="text_pole" style="width:100%;" placeholder="AIzaSy...">
+                            <small style="opacity:0.6;">Uses 'gemini-1.5-flash' model</small>
                         </div>
                     </div>
 
+                    <button id="btn_save_all" class="menu_button" style="margin-top:5px; padding:8px; font-weight:bold;">
+                        <i class="fa-solid fa-floppy-disk"></i> Save Settings
+                    </button>
                     <hr style="opacity:0.2;">
 
                     <div style="display:flex; gap:5px; margin-top:5px;">
                         <div id="html-healer-quick-fix" class="menu_button" style="flex:1; background-color: var(--smart-theme-color, #4caf50);">
-                            <i class="fa-solid fa-wand-magic-sparkles"></i> Quick Fix (Hybrid)
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> Quick Fix
                         </div>
                         <div id="html-healer-open-split" class="menu_button" style="flex:1;">
                             <i class="fa-solid fa-layer-group"></i> Editor
                         </div>
                     </div>
-                    <small style="opacity:0.6; display:block; margin-top:5px; text-align:center;">*Quick fix uses Hybrid Code logic. For AI fix, open Editor.</small>
                 </div>
             </div>
         </div>
     `);
     
-    $('#html-healer-open-split').on('click', openSplitEditor);
-    $('#html-healer-quick-fix').on('click', performSmartQuickFix);
-    $('#healer_use_separate').on('change', toggleFixerDetails);
-    
-    $('#btn_save_tags').on('click', () => {
-        const val = $('#setting_custom_tags').val();
-        saveCustomTags(val);
+    // Event Handlers
+    $('#setting_ai_provider').on('change', function() {
+        if ($(this).val() === 'gemini') {
+            $('.gemini-settings').slideDown();
+        } else {
+            $('.gemini-settings').slideUp();
+        }
     });
 
-    $('#btn_save_fixer').on('click', saveFixerSettings);
+    $('#html-healer-open-split').on('click', openSplitEditor);
+    $('#html-healer-quick-fix').on('click', performSmartQuickFix);
+    
+    $('#btn_save_all').on('click', saveAllSettings);
 }
 
 // --- CSS UPDATED ---
