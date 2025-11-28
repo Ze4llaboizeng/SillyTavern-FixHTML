@@ -5,7 +5,7 @@ const extensionName = "html-healer";
 let initialSegments = []; 
 let currentSegments = []; 
 
-// แยกส่วนประกอบ (ใช้สำหรับหน้า Editor)
+// แยกส่วนประกอบ
 function parseSegments(rawText) {
     if (!rawText) return [];
     let cleanText = rawText
@@ -20,7 +20,6 @@ function parseSegments(rawText) {
     return rawBlocks.map((block, index) => {
         let text = block.trim();
         
-        // เช็คคร่าวๆ ว่าเป็น Tag เปิดยาวๆ หรือไม่
         const startsWithComplexTag = /^<[^/](?!br|i|b|em|strong|span|p)[^>]*>?/i.test(text);
         const hasCloseThink = /<\/think>|Close COT|End of thought/i.test(text);
         
@@ -56,11 +55,11 @@ function applySplitPoint(startIndex) {
     });
 }
 
-// ฟังก์ชันซ่อม HTML (Whitelist Mode)
+// ฟังก์ชันซ่อม HTML (Whitelist + Custom Tags)
 function whitelistFix(text) {
     if (!text) return "";
 
-    // รายชื่อแท็กมาตรฐาน HTML
+    // 1. รายชื่อแท็กมาตรฐาน HTML (ไม่ต้องแก้ตรงนี้)
     const standardTags = new Set([
         "a", "abbr", "address", "article", "aside", "audio", "b", "base", "bdi", "bdo", 
         "blockquote", "body", "br", "button", "canvas", "caption", "cite", "code", "col", 
@@ -76,11 +75,21 @@ function whitelistFix(text) {
         "wbr", "font", "center", "strike", "tt", "big" 
     ]);
 
+    // [แก้ไขตรงนี้] 2. ใส่ Custom Tags ของคุณที่ต้องการให้ระบบช่วยซ่อม (เช่น scrollborad.zeal)
+    // ใส่ชื่อ Tag โดยไม่ต้องมี < > 
+    const userCustomTags = new Set([
+        "scrollborad.zeal",
+        "neon-box",
+        "chat-bubble",
+        // อยากเพิ่มอะไรใส่ตรงนี้ได้เลย
+    ]);
+
     const voidTags = new Set([
         "area", "base", "br", "col", "embed", "hr", "img", "input", 
         "link", "meta", "param", "source", "track", "wbr"
     ]);
 
+    // Regex นี้รองรับชื่อ tag ที่มีจุด (.) ขีด (-) และ underscore (_)
     const tagRegex = /<\/?([a-zA-Z0-9\.\-\_:]+)[^>]*>/g;
     let stack = [];
     let match;
@@ -89,10 +98,15 @@ function whitelistFix(text) {
         const fullTag = match[0];
         const tagName = match[1].toLowerCase();
 
-        if (!standardTags.has(tagName)) continue; 
+        // เช็คว่าอยู่ใน Standard หรือ Custom หรือไม่? ถ้าไม่อยู่ให้ข้าม
+        const isStandard = standardTags.has(tagName);
+        const isCustom = userCustomTags.has(tagName);
+
+        if (!isStandard && !isCustom) continue; 
         if (voidTags.has(tagName)) continue;
 
         if (fullTag.startsWith("</")) {
+            // เจอตัวปิด: วนหาตัวเปิดล่าสุดที่ตรงกันใน Stack
             let foundIndex = -1;
             for (let i = stack.length - 1; i >= 0; i--) {
                 if (stack[i] === tagName) {
@@ -101,13 +115,16 @@ function whitelistFix(text) {
                 }
             }
             if (foundIndex !== -1) {
+                // ถ้าเจอคู่ ให้ตัด Stack ตั้งแต่ตัวนั้นลงไปทิ้ง (ถือว่าปิดเรียบร้อย)
                 stack.splice(foundIndex, stack.length - foundIndex);
             }
         } else {
+            // เจอตัวเปิด: จำใส่ Stack
             stack.push(tagName);
         }
     }
 
+    // ถ้าจบข้อความแล้วยังมีอะไรค้างใน Stack (ลืมปิด) ให้สร้างตัวปิดต่อท้ายให้ครบ
     if (stack.length > 0) {
         const closingTags = stack.reverse().map(t => `</${t}>`).join("");
         return text + "\n" + closingTags;
@@ -131,15 +148,12 @@ async function performSmartQuickFix() {
     const lastIndex = chat.length - 1;
     const originalText = chat[lastIndex].mes;
 
-    // ตรวจหา <think> หรือ &lt;think
     const hasThinking = /<think|&lt;think|&lt;\/think|<\/think>/i.test(originalText);
 
     if (hasThinking) {
-        // กรณีเจอ Think -> บังคับเปิด Editor (ตามที่คุณขอไว้: ถ้า think หลุดให้เป็นป๊อปอัพ)
         toastr.info("Thinking detected! Opening editor to handle carefully...");
         openSplitEditor(); 
     } else {
-        // กรณี HTML ธรรมดา -> ซ่อมเลย
         const fixedText = whitelistFix(originalText);
         if (fixedText !== originalText) {
             chat[lastIndex].mes = fixedText;
@@ -261,30 +275,23 @@ function openSplitEditor() {
         let val = $('#editor-main').val();
         let fixed = whitelistFix(val);
         $('#editor-main').val(fixed).trigger('input');
-        toastr.success("Standard Tags Fixed!");
+        toastr.success("Tags Fixed!");
     });
 
     $('#editor-cot, #editor-main').on('input', updateCounts);
 
-    // --- [แก้ไข] LOGIC ปุ่ม SAVE แบบฉลาด ---
     $('#btn-save-split').on('click', async () => {
         let cot = $('#editor-cot').val().trim();
         const main = $('#editor-main').val();
         let finalMes = "";
 
         if (cot) {
-            // เช็คว่าในกล่องข้อความ มี <think> เปิดอยู่แล้วหรือยัง?
-            // ถ้าไม่มี -> ให้เติม <think> นำหน้า
             if (!/^<think>/i.test(cot)) {
                 cot = `<think>\n${cot}`;
             }
-
-            // เช็คว่าในกล่องข้อความ มี </think> ปิดอยู่แล้วหรือยัง?
-            // ถ้าไม่มี -> ให้เติม </think> ปิดท้าย
             if (!/<\/think>$/i.test(cot)) {
                 cot = `${cot}\n</think>`;
             }
-            
             finalMes = `${cot}\n${main}`;
         } else {
             finalMes = main;
