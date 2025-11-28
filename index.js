@@ -2,28 +2,76 @@ const extensionName = "html-healer";
 
 // --- 0. Global Settings & Persistence ---
 const DEFAULT_CUSTOM_TAGS = "scrollborad.zeal, neon-box, chat-bubble";
-let userCustomTags = new Set();
 
-function loadCustomTags() {
-    const stored = localStorage.getItem('html-healer-custom-tags');
-    const rawString = stored !== null ? stored : DEFAULT_CUSTOM_TAGS;
-    
+// ค่า Default สำหรับ API แยก (เป็น OpenAI Compatible format ซึ่ง Gemini ก็รองรับ)
+const DEFAULT_API_URL = "https://api.openai.com/v1"; 
+const DEFAULT_API_KEY = "";
+const DEFAULT_MODEL = "gpt-3.5-turbo";
+
+let userCustomTags = new Set();
+let fixerSettings = {
+    useSeparateApi: false,
+    apiUrl: DEFAULT_API_URL,
+    apiKey: DEFAULT_API_KEY,
+    model: DEFAULT_MODEL
+};
+
+function loadSettingsData() {
+    // 1. Custom Tags
+    const storedTags = localStorage.getItem('html-healer-custom-tags');
+    const rawString = storedTags !== null ? storedTags : DEFAULT_CUSTOM_TAGS;
     userCustomTags.clear();
     rawString.split(',').forEach(t => {
         const clean = t.trim().toLowerCase();
         if (clean) userCustomTags.add(clean);
     });
-    
-    // อัปเดต UI ถ้าเปิดอยู่
-    if ($('#setting_custom_tags').length) {
-        $('#setting_custom_tags').val(Array.from(userCustomTags).join(', '));
+
+    // 2. Fixer API Settings
+    const storedFixer = localStorage.getItem('html-healer-fixer-settings');
+    if (storedFixer) {
+        fixerSettings = { ...fixerSettings, ...JSON.parse(storedFixer) };
     }
+
+    // Update UI
+    updateSettingsUI();
 }
 
 function saveCustomTags(str) {
     localStorage.setItem('html-healer-custom-tags', str);
-    loadCustomTags();
+    loadSettingsData();
     toastr.success("Custom tags updated!");
+}
+
+function saveFixerSettings() {
+    fixerSettings.useSeparateApi = $('#healer_use_separate').is(':checked');
+    fixerSettings.apiUrl = $('#healer_api_url').val().trim().replace(/\/$/, ""); // ลบ / ท้ายสุดออก
+    fixerSettings.apiKey = $('#healer_api_key').val().trim();
+    fixerSettings.model = $('#healer_model_name').val().trim();
+    
+    localStorage.setItem('html-healer-fixer-settings', JSON.stringify(fixerSettings));
+    toastr.success("Fixer API settings saved!");
+}
+
+function updateSettingsUI() {
+    // Tags
+    if ($('#setting_custom_tags').length) {
+        $('#setting_custom_tags').val(Array.from(userCustomTags).join(', '));
+    }
+    // Fixer API
+    if ($('#healer_use_separate').length) {
+        $('#healer_use_separate').prop('checked', fixerSettings.useSeparateApi);
+        $('#healer_api_url').val(fixerSettings.apiUrl);
+        $('#healer_api_key').val(fixerSettings.apiKey);
+        $('#healer_model_name').val(fixerSettings.model);
+        
+        // Show/Hide details based on checkbox
+        toggleFixerDetails();
+    }
+}
+
+function toggleFixerDetails() {
+    const isChecked = $('#healer_use_separate').is(':checked');
+    $('#healer_api_details').toggle(isChecked);
 }
 
 // --- 1. Logic (Analysis & Fix) ---
@@ -78,14 +126,12 @@ function applySplitPoint(startIndex) {
     });
 }
 
-// --- HYBRID FIX LOGIC (Inline + Block Indent) ---
+// --- HYBRID FIX LOGIC ---
 function smartLineFix(fullText) {
     if (!fullText) return "";
-    
     const lines = fullText.split('\n');
     let resultLines = [];
     
-    // 1. Setup Tag Lists
     const standardTags = new Set([
         "a", "abbr", "address", "article", "aside", "audio", "b", "base", "bdi", "bdo", 
         "blockquote", "body", "br", "button", "canvas", "caption", "cite", "code", "col", 
@@ -100,60 +146,35 @@ function smartLineFix(fullText) {
         "tfoot", "th", "thead", "time", "title", "tr", "track", "u", "ul", "var", "video", 
         "wbr", "font", "center", "strike", "tt", "big" 
     ]);
-
-    const voidTags = new Set([
-        "area", "base", "br", "col", "embed", "hr", "img", "input", 
-        "link", "meta", "param", "source", "track", "wbr"
-    ]);
-
-    // Tag ที่มักจะเป็น Inline (ควรปิดในบรรทัดเดียว)
+    const voidTags = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
     const inlineTags = new Set(["span", "b", "i", "u", "s", "strong", "em", "font", "a", "code", "small", "big", "sub", "sup"]);
-
     const tagRegex = /<\/?([a-zA-Z0-9\.\-\_:]+)[^>]*>/g;
     
-    // Stack สำหรับ Block Tags (div, style, custom...) ที่ข้ามบรรทัดได้
-    let blockStack = []; // { tag: "div", indent: 0 }
+    let blockStack = [];
 
     for (let i = 0; i < lines.length; i++) {
         let line = lines[i];
-        
-        // ถ้าเป็นบรรทัดว่าง ให้ข้ามการคำนวณ Stack แต่เก็บไว้
-        if (!line.trim()) {
-            resultLines.push(line);
-            continue;
-        }
+        if (!line.trim()) { resultLines.push(line); continue; }
 
         const currentIndent = line.search(/\S|$/);
         
-        // A. ตรวจสอบการปิด Block Stack ตาม Indentation
-        // ถ้า Indent ถอยกลับมา (น้อยกว่าหรือเท่ากับตัวล่าสุดใน Stack) -> ปิด Tag นั้นซะ
         let autoClosedBlocks = "";
         while (blockStack.length > 0) {
             const last = blockStack[blockStack.length - 1];
-            // เงื่อนไข: Indent ปัจจุบัน <= Indent ของ Tag แม่ -> แสดงว่าจบ Scope แล้ว
             if (currentIndent <= last.indent) {
                 autoClosedBlocks += `</${last.tag}>`;
                 blockStack.pop();
-            } else {
-                break;
-            }
+            } else { break; }
         }
         
-        // แทรก Tag ปิดของ Block ที่จบแล้ว (แทรกก่อนเริ่มบรรทัดนี้ หรือท้ายบรรทัดก่อนหน้า)
         if (autoClosedBlocks) {
-            // หาบรรทัดก่อนหน้าที่มีเนื้อหา
             let prevIdx = resultLines.length - 1;
             while(prevIdx >= 0 && !resultLines[prevIdx].trim()) prevIdx--;
-            
-            if (prevIdx >= 0) {
-                resultLines[prevIdx] += autoClosedBlocks;
-            } else {
-                line = autoClosedBlocks + line;
-            }
+            if (prevIdx >= 0) resultLines[prevIdx] += autoClosedBlocks;
+            else line = autoClosedBlocks + line;
         }
 
-        // B. ประมวลผล Tag ในบรรทัดนี้
-        let lineStack = []; // Stack ชั่วคราวสำหรับในบรรทัด (ไว้เช็ค Inline)
+        let lineStack = []; 
         let match;
         tagRegex.lastIndex = 0;
 
@@ -167,17 +188,13 @@ function smartLineFix(fullText) {
             if (voidTags.has(tagName)) continue;
 
             if (fullTag.startsWith("</")) {
-                // เจอตัวปิด
-                // 1. ลองหาใน Line Stack (Inline) ก่อน
                 let foundInLine = -1;
                 for (let k = lineStack.length - 1; k >= 0; k--) {
                     if (lineStack[k] === tagName) { foundInLine = k; break; }
                 }
-
                 if (foundInLine !== -1) {
                     lineStack.splice(foundInLine, lineStack.length - foundInLine);
                 } else {
-                    // 2. ถ้าไม่เจอใน Line, ลองไปหาใน Block Stack
                     let foundInBlock = -1;
                     for (let k = blockStack.length - 1; k >= 0; k--) {
                         if (blockStack[k].tag === tagName) { foundInBlock = k; break; }
@@ -186,40 +203,27 @@ function smartLineFix(fullText) {
                         blockStack.splice(foundInBlock, blockStack.length - foundInBlock);
                     }
                 }
-
             } else {
-                // เจอตัวเปิด
                 if (inlineTags.has(tagName)) {
-                    // ถ้าเป็น Inline Tag ให้ใส่ใน Line Stack (คาดหวังว่าจะปิดในบรรทัดนี้)
                     lineStack.push(tagName);
                 } else {
-                    // ถ้าเป็น Block Tag (div, custom) ให้ใส่ Block Stack
                     blockStack.push({ tag: tagName, indent: currentIndent });
                 }
             }
         }
 
-        // C. จบบรรทัด: เคลียร์ Line Stack (Inline Tags ที่ลืมปิด)
-        // ถ้าเหลือค้างใน Line Stack แปลว่าลืมปิด -> ปิดให้เลยท้ายบรรทัดนี้
         if (lineStack.length > 0) {
             const closingInline = lineStack.reverse().map(t => `</${t}>`).join("");
             line += closingInline;
         }
-
         resultLines.push(line);
     }
 
-    // D. จบไฟล์: เคลียร์ Block Stack ที่เหลือ (Block Tags ที่ลืมปิดท้ายสุด)
     if (blockStack.length > 0) {
         const closingBlocks = blockStack.reverse().map(t => `</${t.tag}>`).join("");
-        // แปะท้ายสุด
-        if (resultLines.length > 0) {
-            resultLines[resultLines.length - 1] += closingBlocks;
-        } else {
-            resultLines.push(closingBlocks);
-        }
+        if (resultLines.length > 0) resultLines[resultLines.length - 1] += closingBlocks;
+        else resultLines.push(closingBlocks);
     }
-
     return resultLines.join('\n');
 }
 
@@ -228,7 +232,100 @@ function countWords(str) {
     return str.trim().split(/\s+/).length;
 }
 
-// --- 2. Logic: Smart Action ---
+// --- 2. Logic: Smart Action (With AI) ---
+
+async function callSeparateApi(text) {
+    // ใช้ Fetch ยิงไปที่ OpenAI-Compatible Endpoint (เช่น Google AI Studio, OpenRouter, etc.)
+    const prompt = `You are a code repair assistant.
+Task: Fix the malformed HTML in the provided story text.
+Rules:
+1. Close unclosed tags.
+2. Fix broken attributes.
+3. DO NOT CHANGE THE STORY CONTENT at all.
+4. Return ONLY the fixed text. No explanations.
+
+Text:
+${text}`;
+
+    const payload = {
+        model: fixerSettings.model,
+        messages: [
+            { role: "system", content: "You are a helpful assistant that fixes HTML." },
+            { role: "user", content: prompt }
+        ],
+        temperature: 0.1 // เอาให้นิ่งที่สุด
+    };
+
+    // ตรวจสอบ URL ว่าต้องเติม /chat/completions ไหม (ถ้า user ใส่มาแค่ base)
+    let url = fixerSettings.apiUrl;
+    if (!url.endsWith('/chat/completions')) {
+        url = `${url}/chat/completions`;
+    }
+
+    try {
+        const response = await fetch(url, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${fixerSettings.apiKey}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const err = await response.text();
+            throw new Error(`API Error: ${response.status} - ${err}`);
+        }
+
+        const data = await response.json();
+        if (data.choices && data.choices.length > 0) {
+            return data.choices[0].message.content;
+        } else {
+            throw new Error("No choices returned from API");
+        }
+    } catch (e) {
+        console.error(e);
+        throw e;
+    }
+}
+
+async function performAiFix() {
+    const mainText = $('#editor-main').val();
+    if (!mainText || !mainText.trim()) return toastr.warning("No story text to fix.");
+
+    toastr.info(fixerSettings.useSeparateApi ? `Sending to ${fixerSettings.model}...` : "Sending to Main API...", "AI Fixing");
+    
+    try {
+        let fixedText = "";
+
+        if (fixerSettings.useSeparateApi) {
+            // โหมดใช้โมเดลแยก
+            if (!fixerSettings.apiKey) return toastr.error("API Key for fixer is missing!");
+            fixedText = await callSeparateApi(mainText);
+        } else {
+            // โหมดใช้ Main API ของ SillyTavern
+            if (typeof generateQuietPrompt !== 'function') {
+                return toastr.error("Cannot access Main API. Update SillyTavern.");
+            }
+            const prompt = `Fix broken HTML tags in this text. Maintain original content exactly. Return only the fixed text.\n\n${mainText}`;
+            fixedText = await generateQuietPrompt(prompt, true, false);
+        }
+
+        if (fixedText) {
+            let cleanFixed = fixedText.trim();
+            // ล้าง Markdown Code Block ที่ AI ชอบแถมมา
+            cleanFixed = cleanFixed.replace(/^```html\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '');
+            
+            $('#editor-main').val(cleanFixed).trigger('input');
+            toastr.success("AI Fix Applied!");
+        } else {
+            toastr.warning("AI returned empty response.");
+        }
+
+    } catch (err) {
+        toastr.error("AI Fix Failed: " + err.message);
+    }
+}
 
 async function performSmartQuickFix() {
     const context = SillyTavern.getContext();
@@ -237,7 +334,6 @@ async function performSmartQuickFix() {
 
     const lastIndex = chat.length - 1;
     const originalText = chat[lastIndex].mes;
-
     const hasThinking = /<think|&lt;think|&lt;\/think|<\/think>/i.test(originalText);
 
     if (hasThinking) {
@@ -249,7 +345,7 @@ async function performSmartQuickFix() {
             chat[lastIndex].mes = fixedText;
             await context.saveChat();
             await context.reloadCurrentChat();
-            toastr.success("HTML Fixed (Hybrid Mode)!");
+            toastr.success("HTML Fixed (Hybrid)!");
         } else {
             toastr.success("HTML looks good.");
         }
@@ -329,7 +425,10 @@ function openSplitEditor() {
                             <span class="label"><i class="fa-solid fa-comments"></i> Story</span>
                             <div class="toolbar-actions">
                                 <span class="word-count" id="count-main">0w</span>
-                                <button class="action-btn" id="btn-heal-html"><i class="fa-solid fa-wand-magic-sparkles"></i> Fix</button>
+                                <button class="action-btn" id="btn-ai-fix" style="border-color: var(--smart-theme-color); color:var(--smart-theme-color);">
+                                    <i class="fa-solid fa-robot"></i> AI Fix
+                                </button>
+                                <button class="action-btn" id="btn-heal-html"><i class="fa-solid fa-wand-magic-sparkles"></i> Code Fix</button>
                             </div>
                         </div>
                         <textarea id="editor-main" placeholder="Story content..."></textarea>
@@ -365,8 +464,10 @@ function openSplitEditor() {
         let val = $('#editor-main').val();
         let fixed = smartLineFix(val);
         $('#editor-main').val(fixed).trigger('input');
-        toastr.success("Tags Fixed (Hybrid)!");
+        toastr.success("Fixed with Hybrid Logic");
     });
+
+    $('#btn-ai-fix').on('click', performAiFix);
 
     $('#editor-cot, #editor-main').on('input', updateCounts);
 
@@ -434,7 +535,7 @@ window.copyText = (id) => {
 
 function loadSettings() {
     if ($('.html-healer-settings').length > 0) return;
-    loadCustomTags();
+    loadSettingsData();
 
     $('#extensions_settings').append(`
         <div class="html-healer-settings">
@@ -453,17 +554,46 @@ function loadSettings() {
                             placeholder="e.g. scrollborad.zeal, neon-box"></textarea>
                         <button id="btn_save_tags" class="menu_button" style="margin-top:5px; padding:5px 10px; font-size:0.8em;">Save Tags</button>
                     </div>
+                    
+                    <hr style="opacity:0.2;">
+
+                    <div style="margin: 10px 0;">
+                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                            <input type="checkbox" id="healer_use_separate">
+                            <span style="font-weight:bold; font-size:0.9em;">Use Separate API for AI Fix?</span>
+                        </label>
+                        
+                        <div id="healer_api_details" style="display:none; margin-top:10px; padding-left:10px; border-left:2px solid var(--smart-theme-color);">
+                            <div style="margin-bottom:5px;">
+                                <small>API URL (OpenAI Compatible):</small>
+                                <input type="text" id="healer_api_url" placeholder="[https://api.openai.com/v1](https://api.openai.com/v1)" 
+                                style="width:100%; background:rgba(0,0,0,0.2); border:1px solid #444; padding:3px; color:#ccc;">
+                            </div>
+                            <div style="margin-bottom:5px;">
+                                <small>API Key:</small>
+                                <input type="password" id="healer_api_key" placeholder="sk-..." 
+                                style="width:100%; background:rgba(0,0,0,0.2); border:1px solid #444; padding:3px; color:#ccc;">
+                            </div>
+                            <div style="margin-bottom:5px;">
+                                <small>Model Name:</small>
+                                <input type="text" id="healer_model_name" placeholder="gpt-3.5-turbo, gemini-1.5-flash" 
+                                style="width:100%; background:rgba(0,0,0,0.2); border:1px solid #444; padding:3px; color:#ccc;">
+                            </div>
+                            <button id="btn_save_fixer" class="menu_button" style="margin-top:5px; padding:5px 10px; font-size:0.8em;">Save API Settings</button>
+                        </div>
+                    </div>
+
                     <hr style="opacity:0.2;">
 
                     <div style="display:flex; gap:5px; margin-top:5px;">
                         <div id="html-healer-quick-fix" class="menu_button" style="flex:1; background-color: var(--smart-theme-color, #4caf50);">
-                            <i class="fa-solid fa-wand-magic-sparkles"></i> Quick Fix
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> Quick Fix (Hybrid)
                         </div>
                         <div id="html-healer-open-split" class="menu_button" style="flex:1;">
                             <i class="fa-solid fa-layer-group"></i> Editor
                         </div>
                     </div>
-                    <small style="opacity:0.6; display:block; margin-top:5px; text-align:center;">*Quick fix will open editor if &lt;think&gt; detected.</small>
+                    <small style="opacity:0.6; display:block; margin-top:5px; text-align:center;">*Quick fix uses Hybrid Code logic. For AI fix, open Editor.</small>
                 </div>
             </div>
         </div>
@@ -471,11 +601,14 @@ function loadSettings() {
     
     $('#html-healer-open-split').on('click', openSplitEditor);
     $('#html-healer-quick-fix').on('click', performSmartQuickFix);
+    $('#healer_use_separate').on('change', toggleFixerDetails);
     
     $('#btn_save_tags').on('click', () => {
         const val = $('#setting_custom_tags').val();
         saveCustomTags(val);
     });
+
+    $('#btn_save_fixer').on('click', saveFixerSettings);
 }
 
 // --- CSS UPDATED ---
