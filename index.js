@@ -14,14 +14,12 @@ const authorConfig = {
 function parseSegments(rawText) {
     if (!rawText) return { segments: [], isThinkBroken: false };
     
-    // แปลง tag กันพลาด
     let cleanText = rawText
         .replace(/&lt;think&gt;/gi, "<think>")
         .replace(/&lt;\/think&gt;/gi, "</think>");
 
     const rawBlocks = cleanText.split(/\n/);
     
-    // เช็คสถานะ Think พังหรือไม่
     const hasOpenThink = /<think>/i.test(cleanText);
     const hasCloseThink = /<\/think>/i.test(cleanText);
     const isThinkBroken = hasOpenThink && !hasCloseThink;
@@ -29,6 +27,9 @@ function parseSegments(rawText) {
     let state = 'story'; 
     let segments = [];
     
+    // ถ้า Think พัง (มีเปิดไม่มีปิด) ให้ตั้งต้นเป็น Think ไปก่อนเพื่อให้คนมากดเลือกจุดจบเอง
+    if (isThinkBroken) state = 'think';
+
     rawBlocks.forEach((line, index) => {
         let text = line.trim();
         if (text === "") {
@@ -36,14 +37,13 @@ function parseSegments(rawText) {
             return;
         }
 
-        // Logic ตรวจจับแค่ Think กับ Story (ตัด UI ทิ้ง)
+        // Logic ตรวจจับ (พยายามจับให้ได้มากที่สุดก่อน แต่ถ้า user คลิกจะ override ทันที)
         if (state === 'story') {
             if (/<think>/i.test(text)) state = 'think';
         } else if (state === 'think') {
             if (/<\/think>/i.test(text)) state = 'story'; 
         } 
 
-        // กรณีเจอ tag ปิดในบรรทัดนี้ ให้บรรทัดนี้เป็น Think แล้วจบ
         if (state === 'think' && /<\/think>/i.test(text)) {
              segments.push({ id: index, text: line, type: 'think' });
              state = 'story';
@@ -56,7 +56,7 @@ function parseSegments(rawText) {
     return { segments, isThinkBroken };
 }
 
-// Logic แก้ HTML ขั้นสูง (เก็บไว้เพราะดีกว่าแบบ Whitelist)
+// Logic แก้ HTML ขั้นสูง
 function advancedHtmlFix(text) {
     if (!text) return "";
     const tagRegex = /<(\/?)([a-zA-Z0-9\-\_\.\:]+)([^>]*?)(\/?)>/g;
@@ -124,9 +124,9 @@ async function performSmartQuickFix() {
     const hasOpenThink = /<think>/i.test(originalText);
     const hasCloseThink = /<\/think>/i.test(originalText);
     
-    // ถ้า Think พัง -> บังคับเปิด Editor เพื่อให้คนกด Start Story
+    // ถ้า Think พัง -> บังคับเปิด Editor
     if (hasOpenThink && !hasCloseThink) {
-        toastr.warning("Think is broken! Please set 'Start Story' in Editor.", "Fix Required");
+        toastr.warning("Think is broken! Please click where the Story starts.", "Fix Required");
         openBlockEditor(); 
         return;
     }
@@ -145,7 +145,6 @@ async function performSmartQuickFix() {
 // --- 3. UI Builder ---
 let targetMessageId = null;
 
-// Helper สร้าง Header
 const getHeaderHtml = (title, icon) => `
     <div class="healer-header" style="background: linear-gradient(90deg, var(--lavender-dark, #2a2730) 0%, rgba(42,39,48,0.9) 100%);">
         <div class="header-brand">
@@ -164,7 +163,7 @@ const getHeaderHtml = (title, icon) => `
     </div>
 `;
 
-// Feature: Split (Highlight) - แก้ไขให้คลิกทีเดียวติด
+// Feature: Split (Highlight) - แก้ไขให้คลิกทีเดียวติด (Fix Focus Issue)
 function openHighlightFixer() {
     const context = SillyTavern.getContext();
     const chat = context.chat;
@@ -200,42 +199,26 @@ function openHighlightFixer() {
     </div>`;
     $(document.body).append(modalHtml);
 
-    // ป้องกันปุ่มขโมยโฟกัสตอนกด (สำคัญมากสำหรับปุ่มที่ทำงานกับ Selection)
-    $('#btn-heal-selection').on('mousedown', function(e) {
-        e.preventDefault();
-    });
+    // Prevent button from stealing focus on click
+    $('#btn-heal-selection').on('mousedown', function(e) { e.preventDefault(); });
 
     $('#btn-heal-selection').on('click', () => {
         const textarea = document.getElementById('editor-targeted');
         const start = textarea.selectionStart;
         const end = textarea.selectionEnd;
-        
-        // ถ้าไม่ได้คลุมดำเลย ให้แจ้งเตือน
         if (start === end) return toastr.warning("Please highlight code first!");
         
         const fullText = textarea.value;
         const selectedText = fullText.substring(start, end);
+        const fixedSegment = advancedHtmlFix(selectedText);
         
-        try {
-            const fixedSegment = advancedHtmlFix(selectedText);
-            
-            if (fixedSegment === selectedText) { 
-                toastr.info("Selection looks valid."); 
-                return; 
-            }
-            
-            // แทนที่ข้อความและคง Selection ไว้ที่เดิม
-            const newText = fullText.substring(0, start) + fixedSegment + fullText.substring(end);
-            $(textarea).val(newText).trigger('input'); // trigger input เพื่อให้ระบบรู้ว่าแก้แล้ว
-            
-            textarea.setSelectionRange(start, start + fixedSegment.length);
-            textarea.focus();
-            
-            toastr.success("Fixed!");
-        } catch (err) {
-            console.error(err);
-            toastr.error("Error fixing selection.");
-        }
+        if (fixedSegment === selectedText) { toastr.info("Selection looks valid."); return; }
+        
+        const newText = fullText.substring(0, start) + fixedSegment + fullText.substring(end);
+        $(textarea).val(newText).trigger('input'); 
+        textarea.setSelectionRange(start, start + fixedSegment.length);
+        textarea.focus();
+        toastr.success("Fixed!");
     });
 
     $('#btn-save-targeted').on('click', async () => {
@@ -283,7 +266,7 @@ function openBlockEditor() {
                 <div class="segment-scroller" id="segment-container"></div>
                 <div class="picker-instruction" style="background: rgba(30,30,40,0.9); border-top: 1px solid #444;">
                     <span style="color:#a5d6a7; font-weight:bold;">
-                        <i class="fa-solid fa-flag"></i> Click Flag to Start Story (Everything above becomes Think)
+                        <i class="fa-solid fa-arrow-pointer"></i> Click on the first Story line (Everything above becomes Think)
                     </span>
                 </div>
             </div>
@@ -320,35 +303,20 @@ function openBlockEditor() {
     $(document.body).append(modalHtml);
     renderSegments();
 
-    // 1. Click Block: สลับสถานะได้เฉพาะ Think <-> Story (เผื่อไว้ manual tweak)
+    // ลอจิกใหม่: คลิกที่ไหน ที่นั่นคือจุดเริ่ม Story (Start Story) ทันที
     $('#segment-container').on('click', '.segment-block', function(e) {
-        if ($(e.target).closest('.seg-action').length > 0) return;
-        const id = $(this).data('id');
-        const seg = currentSegments.find(s => s.id === id);
-        
-        // Toggle แค่ 2 สถานะ
-        if (seg.type === 'story') seg.type = 'think';
-        else seg.type = 'story';
-        
-        renderSegments(); 
-    });
-
-    // 2. Click Flag: The "Clean Cut" Logic
-    // กดปุ๊บ บังคับเปลี่ยนสถานะทุกอันตามตำแหน่งที่กดทันที
-    $('#segment-container').on('click', '.seg-action', function(e) {
-        e.stopPropagation(); 
-        const startId = $(this).closest('.segment-block').data('id');
+        const clickedId = $(this).data('id');
         
         currentSegments.forEach(seg => {
-            if (seg.id < startId) {
-                seg.type = 'think'; // ข้างบนเป็น Think หมด
+            if (seg.id < clickedId) {
+                seg.type = 'think'; // เหนือจุดที่คลิก = Think ทั้งหมด
             } else {
-                seg.type = 'story'; // ตั้งแต่ตรงนี้ลงไปเป็น Story หมด
+                seg.type = 'story'; // ตั้งแต่จุดที่คลิก = Story ทั้งหมด
             }
         });
 
-        toastr.success("Clean Cut Applied! (Top=Think, Bottom=Story)");
-        renderSegments(); // Re-render ทันทีเพื่อ update สี
+        // toastr.success("Start Story Set!"); // (Optional)
+        renderSegments(); // สั่งวาดใหม่
     });
 
     $('#btn-reset-split').on('click', () => {
@@ -358,7 +326,6 @@ function openBlockEditor() {
 
     $('#editor-cot, #editor-main').on('input', updateCounts);
 
-    // Save Logic: รวมร่าง
     $('#btn-save-split').on('click', async () => {
         let cot = $('#editor-cot').val().trim();
         let main = $('#editor-main').val().trim();
@@ -371,7 +338,6 @@ function openBlockEditor() {
             parts.push(cot);
         }
         
-        // เอา Story มาต่อเลย (ไม่มี UI มาคั่น)
         if (main) parts.push(main);
 
         const finalMes = parts.join('\n\n');
@@ -389,45 +355,42 @@ function renderSegments() {
     const container = $('#segment-container');
     container.empty();
     
-    currentSegments.forEach(seg => {
+    // หาจุดเริ่มต้น Story ตัวแรกเพื่อแปะป้าย Badge
+    const firstStoryIndex = currentSegments.findIndex(s => s.type === 'story');
+
+    currentSegments.forEach((seg, index) => {
         let icon = '<i class="fa-solid fa-comment"></i>';
         let style = '';
-        let badgeColor = '#ccc';
+        let isStartStory = (index === firstStoryIndex);
 
         if (seg.type === 'think') { 
             icon = '<i class="fa-solid fa-brain"></i>'; 
-            // BLUE STYLE for Think
-            style = 'border-left: 3px solid #2196f3; background: rgba(33, 150, 243, 0.1); color: #90caf9;';
-            badgeColor = '#64b5f6';
+            // BLUE STYLE
+            style = 'border-left: 3px solid #2196f3; background: rgba(33, 150, 243, 0.1); color: #90caf9; opacity: 0.7;';
         } else {
-            // GREEN STYLE for Story (รวมถึงสิ่งที่เคยเป็น UI เก่าด้วย)
+            // GREEN STYLE
             icon = '<i class="fa-solid fa-comment"></i>';
             style = 'border-left: 3px solid #4caf50; background: rgba(76, 175, 80, 0.1); color: #a5d6a7;';
-            badgeColor = '#81c784';
         } 
         
+        // ไม่มีปุ่มธงแล้ว ใช้การคลิกทั้งกล่องแทน
         container.append(`
             <div class="segment-block" data-id="${seg.id}" style="${style} margin-bottom:2px; padding:8px; border-radius:4px; display:flex; align-items:center; cursor:pointer;">
                 <div class="seg-icon" style="margin-right:10px; opacity:0.8;">${icon}</div>
                 <div class="seg-text" style="flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-family:monospace; font-size:0.9em;">
                     ${seg.text.substring(0, 60) || "(empty line)"}
                 </div>
-                
-                <div class="seg-action" title="Set Start Story Here" style="padding:5px 10px; border-radius:4px; background:rgba(255,255,255,0.1); cursor:pointer;">
-                    <i class="fa-solid fa-flag" style="color:${badgeColor};"></i>
-                </div>
+                ${isStartStory ? '<div class="seg-badge" style="background:#98c379; color:#222; font-size:0.7em; padding:1px 5px; border-radius:4px; font-weight:bold;">Start Story</div>' : ''}
             </div>
         `);
     });
 
-    // แยก Text ลงกล่อง
     const thinkText = currentSegments.filter(s => s.type === 'think').map(s => s.text).join('\n');
-    const storyText = currentSegments.filter(s => s.type !== 'think').map(s => s.text).join('\n');
+    const storyText = currentSegments.filter(s => s.type === 'story').map(s => s.text).join('\n');
     
     $('#editor-cot').val(thinkText);
     $('#editor-main').val(storyText);
     
-    // ซ่อนกล่อง Think ถ้าไม่มีเนื้อหา
     if (!thinkText) $('.think-group').hide(); else $('.think-group').show();
     
     updateCounts();
