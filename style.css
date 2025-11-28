@@ -1,112 +1,107 @@
-/* --- 1. SETTINGS PANEL (หน้าตั้งค่า) --- */
+/* --- THEME VARIABLES --- */
+:root {
+    --healer-bg: #1e1b24;
+    --healer-border: #444;
+    --healer-text: #eee;
+    --healer-accent: #98c379;
+    --healer-highlight: rgba(255,255,255,0.05);
+    
+    /* Variables for original Settings Panel */
+    --smart-theme-color: #4caf50;
+    --smart-theme-text: #ffffff;
+}
+
+/* =========================================
+   1. EXTENSION SETTINGS PANEL (หน้าตั้งค่าเดิม)
+   ========================================= */
 .html-healer-settings {
     margin-top: 10px;
     border-top: 1px solid rgba(128, 128, 128, 0.4);
     padding-top: 10px;
 }
+.healer-controls {
+    display: flex; align-items: center; justify-content: space-between; margin: 10px 0; padding: 0 5px;
+}
+.html-healer-settings .menu_button {
+    background-color: var(--smart-theme-color, #4caf50);
+    color: var(--smart-theme-text, #ffffff);
+    text-align: center; font-weight: bold; padding: 10px;
+    border-radius: 10px; cursor: pointer; border: 1px solid transparent;
+    transition: filter 0.2s; margin-top: 10px;
+}
+.html-healer-settings .text_pole {
+    background-color: rgba(0, 0, 0, 0.3);
+    color: var(--smart-theme-text, #fff);
+    border: 1px solid #555;
+    padding: 5px; border-radius: 5px;
+}
 
-/* --- 2. MAGIC WAND BUTTON (ปุ่มเวทมนตร์) --- */
+/* =========================================
+   2. MAGIC WAND BUTTON
+   ========================================= */
 .healer-wand-btn {
-    cursor: pointer;
-    opacity: 0.6;
-    transition: all 0.2s ease-in-out;
-    margin: 0 4px;
-    color: var(--smart-theme-color, #98c379);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px; /* บังคับความกว้างให้เท่าปุ่มอื่น */
-    height: 30px;
+    cursor: pointer; opacity: 0.6; transition: opacity 0.2s, transform 0.2s;
+    margin: 0 5px; color: var(--healer-accent); display: inline-block;
 }
 .healer-wand-btn:hover {
-    opacity: 1;
-    transform: scale(1.15);
-    text-shadow: 0 0 8px var(--smart-theme-color, #98c379);
+    opacity: 1; transform: scale(1.1); text-shadow: 0 0 5px var(--healer-accent);
 }
 
-/* --- 3. POPOVER MENU (เมนูเด้ง) --- */
+/* =========================================
+   3. POPOVER MENU (เมนูเด้ง)
+   ========================================= */
 .healer-popover {
-    position: fixed; /* ใช้ fixed เพื่อกันล้นจอ */
-    z-index: 99999;
-    background: var(--smart-theme-bg, #1e1b24);
-    border: 1px solid var(--smart-theme-border, #444);
-    border-radius: 6px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.6);
-    min-width: 200px;
-    font-family: sans-serif;
-    overflow: hidden;
-    animation: healer-fadein 0.15s ease-out;
+    position: absolute; z-index: 20000;
+    background: var(--healer-bg); border: 1px solid var(--healer-border);
+    border-radius: 6px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+    min-width: 180px; overflow: hidden;
+    animation: healer-fadein 0.1s ease-out; font-family: sans-serif;
 }
-@keyframes healer-fadein { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes healer-fadein { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
 
 .healer-menu-header {
-    background: rgba(0,0,0,0.2);
-    padding: 8px 12px;
-    font-size: 0.8em;
-    font-weight: bold;
-    color: var(--smart-theme-text-muted, #888);
-    border-bottom: 1px solid var(--smart-theme-border, #444);
-    display: flex; justify-content: space-between; align-items: center;
+    background: rgba(0,0,0,0.3); padding: 6px 10px;
+    font-size: 0.75em; font-weight: bold; color: #aaa;
+    border-bottom: 1px solid var(--healer-border);
+    display: flex; justify-content: space-between;
 }
 .healer-menu-item {
-    padding: 12px 15px;
-    cursor: pointer;
-    font-size: 0.95em;
-    color: var(--smart-theme-text, #eee);
-    display: flex; align-items: center; gap: 12px;
-    transition: background 0.2s;
-    border-bottom: 1px solid rgba(255,255,255,0.03);
+    padding: 10px 12px; cursor: pointer; font-size: 0.9em;
+    color: var(--healer-text); display: flex; align-items: center; gap: 10px;
+    transition: background 0.2s; border-bottom: 1px solid rgba(255,255,255,0.05);
 }
-.healer-menu-item:hover { background: rgba(255,255,255,0.08); }
-.healer-menu-item:last-child { border-bottom: none; }
+.healer-menu-item:hover { background: var(--healer-highlight); }
+.healer-menu-item i { width: 18px; text-align: center; }
 
-/* --- 4. EDITOR MODAL (หน้าต่างแก้ไข) --- */
+/* =========================================
+   4. MODAL EDITOR (หน้าต่างแยกส่วน)
+   ========================================= */
 .html-healer-overlay {
     position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-    z-index: 99990; background: rgba(0,0,0,0.85);
+    z-index: 99999; background: rgba(0,0,0,0.85);
     display: flex; align-items: center; justify-content: center;
-    backdrop-filter: blur(4px);
+    backdrop-filter: blur(3px);
 }
 .html-healer-box {
     width: 90%; max-width: 900px; height: 85vh;
-    background: var(--smart-theme-bg, #1e1b24);
-    border: 1px solid var(--smart-theme-border, #444);
-    border-radius: 10px;
-    display: flex; flex-direction: column;
-    box-shadow: 0 0 40px rgba(0,0,0,0.8);
-    color: var(--smart-theme-text, #eee);
+    background: var(--healer-bg); border: 1px solid var(--healer-border);
+    border-radius: 10px; display: flex; flex-direction: column;
+    box-shadow: 0 0 30px rgba(0,0,0,0.7);
 }
 .healer-header {
-    background: rgba(0,0,0,0.3); padding: 12px 20px;
+    background: rgba(0,0,0,0.2); padding: 10px 15px;
     display: flex; justify-content: space-between; align-items: center;
-    border-bottom: 1px solid var(--smart-theme-border, #444);
-    font-size: 1.1em;
+    border-bottom: 1px solid var(--healer-border);
 }
-.healer-body { flex: 1; display: flex; flex-direction: column; padding: 15px; overflow: hidden; gap: 15px; }
-
-.editor-row { 
-    flex: 1; display: flex; flex-direction: column; 
-    border: 1px solid var(--smart-theme-border, #444); 
-    border-radius: 8px; overflow: hidden; background: rgba(0,0,0,0.2);
-}
-.toolbar { 
-    background: rgba(255,255,255,0.05); padding: 8px 15px; 
-    font-size: 0.85em; font-weight: bold; color: var(--smart-theme-text-muted, #aaa); 
-    display: flex; justify-content: space-between; align-items: center;
-    border-bottom: 1px solid var(--smart-theme-border, #444);
-}
+.healer-body { flex: 1; display: flex; flex-direction: column; padding: 10px; overflow: hidden; gap: 10px; }
+.editor-row { flex: 1; display: flex; flex-direction: column; border: 1px solid var(--healer-border); border-radius: 6px; overflow: hidden; }
+.toolbar { background: rgba(0,0,0,0.2); padding: 5px 10px; font-size: 0.8em; font-weight: bold; color: #888; display: flex; justify-content: space-between; }
 textarea.healer-input {
     flex: 1; width: 100%; border: none; background: transparent; 
-    color: var(--smart-theme-text, #ddd); padding: 15px; 
-    resize: none; font-family: 'Consolas', monospace; outline: none;
-    font-size: 14px; line-height: 1.5;
+    color: #ddd; padding: 10px; resize: none; font-family: monospace; outline: none;
 }
-
-.healer-footer { padding: 15px; border-top: 1px solid var(--smart-theme-border, #444); text-align: right; background: rgba(0,0,0,0.2); }
+.healer-footer { padding: 10px; border-top: 1px solid var(--healer-border); text-align: right; }
 .btn-save { 
-    background: var(--smart-theme-color, #98c379); 
-    color: var(--smart-theme-text-buttons, #222); 
-    border: none; padding: 10px 25px; border-radius: 6px; 
-    font-weight: bold; cursor: pointer; transition: filter 0.2s;
+    background: var(--healer-accent); color: #222; border: none; 
+    padding: 8px 20px; border-radius: 5px; font-weight: bold; cursor: pointer; 
 }
-.btn-save:hover { filter: brightness(1.1); }
