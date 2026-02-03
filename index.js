@@ -56,7 +56,7 @@ function parseSegments(rawText) {
     return { segments, isThinkBroken };
 }
 
-// Logic แก้ HTML ขั้นสูง (ปิดแท็กที่หายไป)
+// Logic แก้ HTML ขั้นสูง
 function advancedHtmlFix(text) {
     if (!text) return "";
     const tagRegex = /<(\/?)([a-zA-Z0-9\-\_\.\:]+)([^>]*?)(\/?)>/g;
@@ -108,22 +108,6 @@ function advancedHtmlFix(text) {
     return result;
 }
 
-// --- NEW FUNCTION: แกะกล่อง Markdown Code Block ---
-function fixCodeBlock(text) {
-    if (!text) return "";
-
-    // Regex จับ ```html ... ``` หรือ ``` ...
-if (codeBlockRegex.test(text)) {
-        // แกะเปลือกออก
-        let unwrappedText = text.replace(codeBlockRegex, "$1");
-        // ส่งต่อให้ advancedHtmlFix เพื่อปิดแท็กให้ครบ
-        return advancedHtmlFix(unwrappedText);
-    }
-
-    // ถ้าไม่มี Code Block ก็ซ่อม HTML ปกติ
-    return advancedHtmlFix(text);
-}
-
 function countWords(str) {
     if (!str) return 0;
     return str.trim().split(/\s+/).length;
@@ -147,14 +131,12 @@ async function performSmartQuickFix() {
         return;
     }
 
-    // เรียกใช้ฟังก์ชันใหม่ที่นี่ (แก้ Code Block + แก้ HTML)
-    const fixedText = fixCodeBlock(originalText);
-    
+    const fixedText = advancedHtmlFix(originalText);
     if (fixedText !== originalText) {
         chat[lastIndex].mes = fixedText;
         await context.saveChat();
         await context.reloadCurrentChat();
-        toastr.success("Fixed & Unwrapped!");
+        toastr.success("Fixed!");
     } else {
         toastr.success("Perfect!");
     }
@@ -181,7 +163,7 @@ const getHeaderHtml = (title, icon) => `
     </div>
 `;
 
-// Feature: Split (Highlight)
+// Feature: Split (Highlight) - แก้ไขให้คลิกทีเดียวติด (Fix Focus Issue)
 function openHighlightFixer() {
     const context = SillyTavern.getContext();
     const chat = context.chat;
@@ -217,6 +199,7 @@ function openHighlightFixer() {
     </div>`;
     $(document.body).append(modalHtml);
 
+    // Prevent button from stealing focus on click
     $('#btn-heal-selection').on('mousedown', function(e) { e.preventDefault(); });
 
     $('#btn-heal-selection').on('click', () => {
@@ -227,9 +210,7 @@ function openHighlightFixer() {
         
         const fullText = textarea.value;
         const selectedText = fullText.substring(start, end);
-        
-        // ใช้ fixCodeBlock ตรงนี้ด้วย
-        const fixedSegment = fixCodeBlock(selectedText);
+        const fixedSegment = advancedHtmlFix(selectedText);
         
         if (fixedSegment === selectedText) { toastr.info("Selection looks valid."); return; }
         
@@ -248,7 +229,7 @@ function openHighlightFixer() {
     });
 }
 
-// Feature: Editor (Blocks)
+// Feature: Editor (Blocks - Clean Cut Logic - UPDATED)
 function openBlockEditor() {
     const context = SillyTavern.getContext();
     const chat = context.chat;
@@ -322,16 +303,20 @@ function openBlockEditor() {
     $(document.body).append(modalHtml);
     renderSegments();
 
+    // ลอจิกใหม่: คลิกที่ไหน ที่นั่นคือจุดเริ่ม Story (Start Story) ทันที
     $('#segment-container').on('click', '.segment-block', function(e) {
         const clickedId = $(this).data('id');
+        
         currentSegments.forEach(seg => {
             if (seg.id < clickedId) {
-                seg.type = 'think';
+                seg.type = 'think'; // เหนือจุดที่คลิก = Think ทั้งหมด
             } else {
-                seg.type = 'story';
+                seg.type = 'story'; // ตั้งแต่จุดที่คลิก = Story ทั้งหมด
             }
         });
-        renderSegments();
+
+        // toastr.success("Start Story Set!"); // (Optional)
+        renderSegments(); // สั่งวาดใหม่
     });
 
     $('#btn-reset-split').on('click', () => {
@@ -347,6 +332,7 @@ function openBlockEditor() {
         
         let parts = [];
         if (cot) {
+            // ห่อ Think ให้อัตโนมัติถ้าไม่มี
             if (!/^<think>/i.test(cot)) cot = `<think>\n${cot}`;
             if (!/<\/think>$/i.test(cot)) cot = `${cot}\n</think>`;
             parts.push(cot);
@@ -368,6 +354,8 @@ function openBlockEditor() {
 function renderSegments() {
     const container = $('#segment-container');
     container.empty();
+    
+    // หาจุดเริ่มต้น Story ตัวแรกเพื่อแปะป้าย Badge
     const firstStoryIndex = currentSegments.findIndex(s => s.type === 'story');
 
     currentSegments.forEach((seg, index) => {
@@ -377,12 +365,15 @@ function renderSegments() {
 
         if (seg.type === 'think') { 
             icon = '<i class="fa-solid fa-brain"></i>'; 
+            // BLUE STYLE
             style = 'border-left: 3px solid #2196f3; background: rgba(33, 150, 243, 0.1); color: #90caf9; opacity: 0.7;';
         } else {
+            // GREEN STYLE
             icon = '<i class="fa-solid fa-comment"></i>';
             style = 'border-left: 3px solid #4caf50; background: rgba(76, 175, 80, 0.1); color: #a5d6a7;';
         } 
         
+        // ไม่มีปุ่มธงแล้ว ใช้การคลิกทั้งกล่องแทน
         container.append(`
             <div class="segment-block" data-id="${seg.id}" style="${style} margin-bottom:2px; padding:8px; border-radius:4px; display:flex; align-items:center; cursor:pointer;">
                 <div class="seg-icon" style="margin-right:10px; opacity:0.8;">${icon}</div>
@@ -401,6 +392,7 @@ function renderSegments() {
     $('#editor-main').val(storyText);
     
     if (!thinkText) $('.think-group').hide(); else $('.think-group').show();
+    
     updateCounts();
 }
 
