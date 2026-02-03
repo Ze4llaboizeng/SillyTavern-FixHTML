@@ -3,43 +3,68 @@
     position: relative !important;
 }
 
-/* ดีไซน์ปุ่ม Fix HTML */
+/* --- ปุ่ม 1: Fix HTML ใน Code Block --- */
+/* ย้ายมาไว้มุม "ซ้ายล่าง" เพื่อหลบปุ่ม Copy ของ SillyTavern (ที่มักอยู่ขวาบน) */
 .st-fix-html-btn {
     position: absolute;
-    bottom: 5px;
-    right: 5px;
+    bottom: 6px;
+    left: 6px; /* ย้ายมาซ้าย */
     z-index: 10;
     
-    background-color: rgba(30, 30, 40, 0.8);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 6px;
+    background-color: rgba(20, 20, 30, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
     
-    color: #e0e0e0;
-    font-size: 12px;
+    color: #cccccc;
+    font-size: 11px;
     font-family: sans-serif;
-    font-weight: bold;
+    font-weight: 600;
     
-    padding: 4px 10px;
+    padding: 3px 8px;
     cursor: pointer;
     transition: all 0.2s ease;
     
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     
-    opacity: 0.7;
+    opacity: 0.6;
 }
 
-/* Effect เมื่อเอาเมาส์ชี้ */
 .st-fix-html-btn:hover {
-    background-color: rgba(40, 167, 69, 0.9); /* สีเขียวเมื่อ hover */
+    background-color: rgba(40, 167, 69, 0.9);
     color: white;
+    border-color: rgba(40, 167, 69, 1);
     opacity: 1;
     transform: translateY(-1px);
-    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
 }
 
-/* ป้องกันปุ่มซ้อนทับกับ Scrollbar หรือปุ่ม Copy ของ SillyTavern เดิม */
+/* เพิ่มพื้นที่ด้านล่าง code block เพื่อไม่ให้ปุ่มบังโค้ดบรรทัดสุดท้าย */
 .mes_text pre {
-    padding-bottom: 30px !important; /* เพิ่มพื้นที่ด้านล่าง code block เล็กน้อย */
+    padding-bottom: 35px !important;
+}
+
+/* --- ปุ่ม 2: Wrap All ในแถบข้อความ --- */
+.st-wrap-raw-btn {
+    /* ใช้ Margin แยกตัวออกมาจากกลุ่มปุ่มเดิม */
+    margin-right: 15px !important; 
+    margin-left: 5px !important;
+    
+    opacity: 0.7;
+    cursor: pointer;
+    font-size: 0.9em;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    
+    /* ดีไซน์ให้ดูต่างจากปุ่ม System */
+    border: 1px dashed rgba(255,255,255,0.3);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.st-wrap-raw-btn:hover {
+    opacity: 1;
+    border-color: rgba(255,255,255,0.8);
+    background-color: rgba(255,255,255,0.1);
 }
