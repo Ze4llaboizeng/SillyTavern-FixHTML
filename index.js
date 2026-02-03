@@ -113,28 +113,6 @@ function countWords(str) {
     return str.trim().split(/\s+/).length;
 }
 
-// [เพิ่มใหม่] ฟังก์ชันสำหรับแกะ HTML ออกจาก Code Block
-function fixCodeBlocks(text) {
-    if (!text) return "";
-    
-    // Regex จับแพทเทิร์น ```html ... ``` หรือแค่ ``` ... ```
-    // ใช้ [\s\S]*? เพื่อจับทุกอย่างรวมถึงบรรทัดใหม่
-    const codeBlockRegex = /```(?:html|xml)?\s*([\s\S]*?)\s*```/gi;
-
-    return text.replace(codeBlockRegex, (match, content) => {
-        const trimmedContent = content.trim();
-        
-        // เช็คว่าไส้ในเริ่มด้วย <div, <span, <p หรือ tag html อื่นๆ หรือไม่
-        // ถ้าใช่ ให้ส่งคืนแค่ไส้ใน (แกะเปลือกออก)
-        if (trimmedContent.startsWith('<')) {
-            return trimmedContent;
-        }
-        
-        // ถ้าไม่ใช่ HTML (เช่นเป็น Python, JS) ให้คงไว้เหมือนเดิม
-        return match;
-    });
-}
-
 // --- 2. Smart Action (Auto Fix) ---
 async function performSmartQuickFix() {
     const context = SillyTavern.getContext();
@@ -143,29 +121,22 @@ async function performSmartQuickFix() {
 
     const lastIndex = chat.length - 1;
     const originalText = chat[lastIndex].mes;
-    
-    // ... (logic เช็ค Think เดิม คงไว้) ...
     const hasOpenThink = /<think>/i.test(originalText);
     const hasCloseThink = /<\/think>/i.test(originalText);
     
+    // ถ้า Think พัง -> บังคับเปิด Editor
     if (hasOpenThink && !hasCloseThink) {
         toastr.warning("Think is broken! Please click where the Story starts.", "Fix Required");
         openBlockEditor(); 
         return;
     }
 
-    // === แก้ไขตรงนี้ ===
-    // 1. แกะ Codeblock ออกก่อน
-    let processedText = fixCodeBlocks(originalText);
-    
-    // 2. แล้วค่อยซ่อม Tag HTML ที่อาจจะพัง
-    const fixedText = advancedHtmlFix(processedText);
-
+    const fixedText = advancedHtmlFix(originalText);
     if (fixedText !== originalText) {
         chat[lastIndex].mes = fixedText;
         await context.saveChat();
         await context.reloadCurrentChat();
-        toastr.success("Code block unwrap & HTML fixed!"); // เปลี่ยนข้อความแจ้งเตือนหน่อย
+        toastr.success("Fixed!");
     } else {
         toastr.success("Perfect!");
     }
@@ -192,7 +163,7 @@ const getHeaderHtml = (title, icon) => `
     </div>
 `;
 
-// Feature: Split (Highlight) - แก้ไขให้คลิกทีเดียวติด (Fix Focus Issue)
+// Feature: Split (Highlight)
 function openHighlightFixer() {
     const context = SillyTavern.getContext();
     const chat = context.chat;
@@ -211,11 +182,8 @@ function openHighlightFixer() {
                             <span class="label" style="color:#90caf9;"><i class="fa-solid fa-i-cursor"></i> Highlight broken part</span>
                             <div class="toolbar-actions">
                                 <button class="action-btn" id="btn-heal-selection" style="background:#90caf9; color:#222; border:none; font-weight:bold;">
-                                    <i class="fa-solid fa-wand-magic-sparkles"></i> Fix Selection    
+                                    <i class="fa-solid fa-wand-magic-sparkles"></i> Fix Selection
                                 </button>
-                                <button class="action-btn" id="btn-unwrap-code" style="background:#ffcc80; color:#222; border:none; font-weight:bold;">
-    <i class="fa-solid fa-box-open"></i> Unwrap HTML
-</button>
                             </div>
                         </div>
                         <textarea id="editor-targeted" placeholder="Message content..." style="font-family: monospace;">${originalText}</textarea>
@@ -258,21 +226,6 @@ function openHighlightFixer() {
         await context.saveChat();
         await context.reloadCurrentChat();
         $('#html-healer-modal').remove();
-    });
-    // ใส่ต่อจาก Event ของปุ่มอื่นๆ ใน openHighlightFixer
-    $('#btn-unwrap-code').on('click', () => {
-        const textarea = document.getElementById('editor-targeted');
-        const currentVal = textarea.value;
-        
-        // ใช้ฟังก์ชันที่เราสร้างไว้
-        const unwrapped = fixCodeBlocks(currentVal);
-        
-        if (unwrapped !== currentVal) {
-            $(textarea).val(unwrapped).trigger('input');
-            toastr.success("Unwrapped code block!");
-        } else {
-            toastr.info("No HTML code block found.");
-        }
     });
 }
 
@@ -350,20 +303,18 @@ function openBlockEditor() {
     $(document.body).append(modalHtml);
     renderSegments();
 
-    // ลอจิกใหม่: คลิกที่ไหน ที่นั่นคือจุดเริ่ม Story (Start Story) ทันที
+    
     $('#segment-container').on('click', '.segment-block', function(e) {
         const clickedId = $(this).data('id');
         
         currentSegments.forEach(seg => {
             if (seg.id < clickedId) {
-                seg.type = 'think'; // เหนือจุดที่คลิก = Think ทั้งหมด
+                seg.type = 'think';
             } else {
-                seg.type = 'story'; // ตั้งแต่จุดที่คลิก = Story ทั้งหมด
+                seg.type = 'story'; 
             }
         });
-
-        // toastr.success("Start Story Set!"); // (Optional)
-        renderSegments(); // สั่งวาดใหม่
+        renderSegments(); 
     });
 
     $('#btn-reset-split').on('click', () => {
@@ -419,8 +370,7 @@ function renderSegments() {
             icon = '<i class="fa-solid fa-comment"></i>';
             style = 'border-left: 3px solid #4caf50; background: rgba(76, 175, 80, 0.1); color: #a5d6a7;';
         } 
-        
-        // ไม่มีปุ่มธงแล้ว ใช้การคลิกทั้งกล่องแทน
+
         container.append(`
             <div class="segment-block" data-id="${seg.id}" style="${style} margin-bottom:2px; padding:8px; border-radius:4px; display:flex; align-items:center; cursor:pointer;">
                 <div class="seg-icon" style="margin-right:10px; opacity:0.8;">${icon}</div>
