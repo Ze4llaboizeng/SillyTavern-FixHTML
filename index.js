@@ -259,6 +259,21 @@ function openHighlightFixer() {
         await context.reloadCurrentChat();
         $('#html-healer-modal').remove();
     });
+    // ใส่ต่อจาก Event ของปุ่มอื่นๆ ใน openHighlightFixer
+    $('#btn-unwrap-code').on('click', () => {
+        const textarea = document.getElementById('editor-targeted');
+        const currentVal = textarea.value;
+        
+        // ใช้ฟังก์ชันที่เราสร้างไว้
+        const unwrapped = fixCodeBlocks(currentVal);
+        
+        if (unwrapped !== currentVal) {
+            $(textarea).val(unwrapped).trigger('input');
+            toastr.success("Unwrapped code block!");
+        } else {
+            toastr.info("No HTML code block found.");
+        }
+    });
 }
 
 // Feature: Editor (Blocks - Clean Cut Logic - UPDATED)
