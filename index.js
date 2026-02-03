@@ -173,8 +173,10 @@ ${rawCode}
             toastr.success('Message wrapped in HTML block!', extensionName);
         });
 
-        // Append to the message controls area
-        $controls.append($btn);
+        // Prepend instead of Append to put it on the far left (away from Copy/Delete on the right)
+        // OR Append but rely on CSS margin.
+        // Let's Prepend to be safe from right-side clutter.
+        $controls.prepend($btn);
     }
 
     // --- Main Scan Logic ---
