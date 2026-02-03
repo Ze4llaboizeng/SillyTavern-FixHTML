@@ -113,6 +113,28 @@ function countWords(str) {
     return str.trim().split(/\s+/).length;
 }
 
+// [เพิ่มใหม่] ฟังก์ชันสำหรับแกะ HTML ออกจาก Code Block
+function fixCodeBlocks(text) {
+    if (!text) return "";
+    
+    // Regex จับแพทเทิร์น ```html ... ``` หรือแค่ ``` ... ```
+    // ใช้ [\s\S]*? เพื่อจับทุกอย่างรวมถึงบรรทัดใหม่
+    const codeBlockRegex = /```(?:html|xml)?\s*([\s\S]*?)\s*```/gi;
+
+    return text.replace(codeBlockRegex, (match, content) => {
+        const trimmedContent = content.trim();
+        
+        // เช็คว่าไส้ในเริ่มด้วย <div, <span, <p หรือ tag html อื่นๆ หรือไม่
+        // ถ้าใช่ ให้ส่งคืนแค่ไส้ใน (แกะเปลือกออก)
+        if (trimmedContent.startsWith('<')) {
+            return trimmedContent;
+        }
+        
+        // ถ้าไม่ใช่ HTML (เช่นเป็น Python, JS) ให้คงไว้เหมือนเดิม
+        return match;
+    });
+}
+
 // --- 2. Smart Action (Auto Fix) ---
 async function performSmartQuickFix() {
     const context = SillyTavern.getContext();
@@ -121,22 +143,29 @@ async function performSmartQuickFix() {
 
     const lastIndex = chat.length - 1;
     const originalText = chat[lastIndex].mes;
+    
+    // ... (logic เช็ค Think เดิม คงไว้) ...
     const hasOpenThink = /<think>/i.test(originalText);
     const hasCloseThink = /<\/think>/i.test(originalText);
     
-    // ถ้า Think พัง -> บังคับเปิด Editor
     if (hasOpenThink && !hasCloseThink) {
         toastr.warning("Think is broken! Please click where the Story starts.", "Fix Required");
         openBlockEditor(); 
         return;
     }
 
-    const fixedText = advancedHtmlFix(originalText);
+    // === แก้ไขตรงนี้ ===
+    // 1. แกะ Codeblock ออกก่อน
+    let processedText = fixCodeBlocks(originalText);
+    
+    // 2. แล้วค่อยซ่อม Tag HTML ที่อาจจะพัง
+    const fixedText = advancedHtmlFix(processedText);
+
     if (fixedText !== originalText) {
         chat[lastIndex].mes = fixedText;
         await context.saveChat();
         await context.reloadCurrentChat();
-        toastr.success("Fixed!");
+        toastr.success("Code block unwrap & HTML fixed!"); // เปลี่ยนข้อความแจ้งเตือนหน่อย
     } else {
         toastr.success("Perfect!");
     }
@@ -182,8 +211,11 @@ function openHighlightFixer() {
                             <span class="label" style="color:#90caf9;"><i class="fa-solid fa-i-cursor"></i> Highlight broken part</span>
                             <div class="toolbar-actions">
                                 <button class="action-btn" id="btn-heal-selection" style="background:#90caf9; color:#222; border:none; font-weight:bold;">
-                                    <i class="fa-solid fa-wand-magic-sparkles"></i> Fix Selection
+                                    <i class="fa-solid fa-wand-magic-sparkles"></i> Fix Selection    
                                 </button>
+                                <button class="action-btn" id="btn-unwrap-code" style="background:#ffcc80; color:#222; border:none; font-weight:bold;">
+    <i class="fa-solid fa-box-open"></i> Unwrap HTML
+</button>
                             </div>
                         </div>
                         <textarea id="editor-targeted" placeholder="Message content..." style="font-family: monospace;">${originalText}</textarea>
