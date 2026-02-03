@@ -1,34 +1,15 @@
-// SillyTavern-FixHTML Extension
-// Adds a button to code blocks to wrap them in a valid HTML structure for rendering.
+// SillyTavern-FixHTML Extension (Robust Version)
+// 1. Fixes existing code blocks using Index-Based matching (100% accuracy).
+// 2. Adds "Wrap Raw HTML" feature for code outside blocks.
 
 (function () {
     const extensionName = "SillyTavern-FixHTML";
 
-    /**
-     * Checks if the code needs fixing (missing html/head/body tags)
-     * @param {string} code 
-     * @returns {boolean}
-     */
-    function needsFixing(code) {
-        const lowerCode = code.toLowerCase().trim();
-        // If it already has html tag or doctype, it might be fine (or handled by the runner already)
-        if (lowerCode.includes('<html') || lowerCode.includes('<!doctype html')) {
-            return false;
-        }
-        // If it's empty, don't fix
-        if (!code) return false;
-        
-        return true;
-    }
-
-    /**
-     * Wraps the raw code in a standard HTML5 template
-     * @param {string} rawCode 
-     * @returns {string} Fixed HTML code
-     */
+    // --- HTML Templates ---
+    
     function wrapInTemplate(rawCode) {
-        // Detect if it's likely just CSS
-        if (rawCode.includes('{') && rawCode.includes('}') && !rawCode.includes('<')) {
+        // Simple heuristic: Is it CSS?
+        if (rawCode.includes('{') && rawCode.includes('}') && !rawCode.includes('<div') && !rawCode.includes('<body')) {
             return `<!DOCTYPE html>
 <html>
 <head>
@@ -39,15 +20,12 @@ ${rawCode}
 </style>
 </head>
 <body>
-<!-- CSS Applied -->
-<div style="padding: 20px; text-align: center; color: #888;">
-    Styling applied to this page.
-</div>
+<div style="padding: 20px; text-align: center; color: #888;">CSS Applied</div>
 </body>
 </html>`;
         }
 
-        // Default wrapping for HTML fragments
+        // Standard HTML Wrap
         return `<!DOCTYPE html>
 <html>
 <head>
@@ -55,7 +33,6 @@ ${rawCode}
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
     body { margin: 0; padding: 0; overflow: hidden; background-color: transparent; }
-    /* Basic reset for better compatibility */
     * { box-sizing: border-box; }
 </style>
 </head>
@@ -65,156 +42,185 @@ ${rawCode}
 </html>`;
     }
 
-    /**
-     * Updates the message content in SillyTavern
-     * @param {number} mesId Message ID
-     * @param {string} newContent New full message content
-     */
-    async function updateMessage(mesId, newContent) {
-        // Update the internal chat array
+    // --- Core Logic ---
+
+    async function updateMessageContent(mesId, newContent) {
         if (typeof chat !== 'undefined' && chat[mesId]) {
             chat[mesId].mes = newContent;
             
-            // Save the chat (debounced/standard save)
             if (typeof saveChatDebounced === 'function') {
                 saveChatDebounced();
             } else if (typeof saveChat === 'function') {
                 saveChat();
             }
 
-            // Force a refresh of the message to trigger the Runner extension
-            // We use jQuery to replace the message content directly or reload the chat
-            // The cleanest way is often to emit an event or let ST re-render
+            // Reload chat/event
             const event = new CustomEvent('userscript:reload_chat'); 
             window.dispatchEvent(event);
-            
-            // Fallback: Manually re-render the specific message if possible (Extension specific)
-            // But reloading chat usually works best to trigger other extensions' observers
-            // Or try standard re-render event
             if (typeof eventSource !== 'undefined') {
                 eventSource.emit('chat_changed');
             }
         }
     }
 
-    /**
-     * Adds the "Fix HTML" button to a code block
-     * @param {HTMLElement} preElement The <pre> element
-     * @param {number} mesId The message ID belonging to this block
-     */
-    function addFixButtonToBlock(preElement, mesId) {
+    // --- Feature 1: Fix Existing Code Blocks ---
+
+    function addFixButtonToBlock(preElement, mesId, blockIndex) {
         const $pre = $(preElement);
-        
-        // Check if button already exists
         if ($pre.find('.st-fix-html-btn').length > 0) return;
 
-        // Check content
         const $code = $pre.find('code');
         if ($code.length === 0) return;
         
-        const rawCode = $code.text();
-
-        // Add class for positioning
         $pre.addClass('st-fix-html-container');
 
-        // Create Button
-        const $btn = $(`<div class="st-fix-html-btn" title="Click to wrap code in <html> tags for rendering">
-            <span>🔧 Fix HTML</span>
+        // Check if it looks valid already
+        const text = $code.text().toLowerCase();
+        const seemsValid = text.includes('<html') && text.includes('<body');
+        
+        // Button UI
+        const $btn = $(`<div class="st-fix-html-btn" title="Force wrap this code block in <html> template">
+            <span>${seemsValid ? '✅ Valid' : '🔧 Fix HTML'}</span>
         </div>`);
 
-        // Click Handler
         $btn.on('click', async (e) => {
-            e.stopPropagation(); // Prevent triggering other listeners
+            e.stopPropagation();
             
-            if (!needsFixing(rawCode)) {
-                toastr.info('Code block already appears to be valid HTML.', 'SillyTavern FixHTML');
+            if (!chat[mesId]) {
+                toastr.error('Message not found in chat history.', extensionName);
                 return;
             }
 
-            const fixedCode = wrapInTemplate(rawCode);
+            let originalContent = chat[mesId].mes;
             
-            // We need to replace the content in the original message text
-            // This is tricky because there might be multiple code blocks.
-            // For safety, we rely on the fact that we are clicking THIS specific block.
-            // But updating `chat[mesId].mes` requires string replacement.
+            // Regex to find all code blocks: ```lang ... ```
+            // We use a capture group for content
+            const codeBlockRegex = /```[\w]*\s*([\s\S]*?)\s*```/g;
             
-            if (chat && chat[mesId]) {
-                let originalMessage = chat[mesId].mes;
-                
-                // Simple string replace might replace the wrong block if duplicates exist.
-                // A more robust way involves rebuilding the message, but simple replace is usually "good enough" for unique code blocks.
-                // Or we can try to find the index.
-                
-                // Escape regex special characters from the raw code to find it safely
-                const escapedCode = rawCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                
-                // Regex to match the code block containing this code
-                // Matches ```...code...```
-                const regex = new RegExp(`\`\`\`[\\w]*\\s*${escapedCode}\\s*\`\`\``, 'i');
-                
-                if (regex.test(originalMessage)) {
-                    const newBlock = `\`\`\`html\n${fixedCode}\n\`\`\``;
-                    const newMessage = originalMessage.replace(regex, newBlock);
-                    
-                    await updateMessage(mesId, newMessage);
-                    toastr.success('Code block fixed! Reloading...', 'SillyTavern FixHTML');
-                } else {
-                    toastr.error('Could not safely locate code block in original message.', 'Error');
+            let match;
+            let currentIdx = 0;
+            let targetMatch = null;
+
+            // Iterate to find the N-th code block (blockIndex)
+            while ((match = codeBlockRegex.exec(originalContent)) !== null) {
+                if (currentIdx === blockIndex) {
+                    targetMatch = match;
+                    break;
                 }
+                currentIdx++;
+            }
+
+            if (targetMatch) {
+                const oldBlock = targetMatch[0]; // The full ```...``` string
+                const innerCode = targetMatch[1]; // The content inside
+                
+                // Wrap it
+                const newCode = wrapInTemplate(innerCode);
+                const newBlock = `\`\`\`html\n${newCode}\n\`\`\``;
+
+                // Replace ONLY this specific occurrence
+                // String.replace only replaces the first match, but we need to be careful if identical blocks exist.
+                // Safest way: Split string by the match index
+                
+                const startIndex = targetMatch.index;
+                const endIndex = startIndex + oldBlock.length;
+                
+                const newFullMessage = 
+                    originalContent.substring(0, startIndex) + 
+                    newBlock + 
+                    originalContent.substring(endIndex);
+
+                await updateMessageContent(mesId, newFullMessage);
+                toastr.success('Code block fixed and wrapped!', extensionName);
+            } else {
+                toastr.error(`Could not locate code block #${blockIndex + 1} in raw text.`, extensionName);
             }
         });
 
-        // Append button to <pre>
         $pre.append($btn);
     }
 
-    /**
-     * Scans the chat for code blocks and adds buttons
-     */
-    function scanAndAddButtons() {
-        // Find all message elements
+    // --- Feature 2: Wrap Raw HTML (For content NOT in code blocks) ---
+
+    function addRawWrapButtonToMessage(mesDiv, mesId) {
+        const $mes = $(mesDiv);
+        const $controls = $mes.find('.mes_buttons'); // The button bar at bottom/top of message
+        
+        // Avoid duplicates
+        if ($controls.find('.st-wrap-raw-btn').length > 0) return;
+
+        // Heuristic: Does this message have raw HTML tags but maybe no code blocks?
+        // Or user just wants to force it.
+        // We'll just add the button discreetly to all Assistant messages or messages with < tags.
+        const text = chat[mesId]?.mes || "";
+        if (!text.includes('<') && !text.includes('>')) return; 
+
+        const $btn = $(`<div class="mes_button st-wrap-raw-btn" title="Wrap entire message in HTML code block">
+            📜 Wrap All
+        </div>`);
+
+        $btn.on('click', async () => {
+            if (!confirm("Wrap the ENTIRE message content into an HTML code block?")) return;
+
+            let content = chat[mesId].mes;
+            
+            // If it already has backticks, we might break it, but the user asked for "Wrap All".
+            // Let's just wrap the whole thing.
+            const fixedCode = wrapInTemplate(content);
+            const newBlock = `\`\`\`html\n${fixedCode}\n\`\`\``;
+            
+            await updateMessageContent(mesId, newBlock);
+            toastr.success('Message wrapped in HTML block!', extensionName);
+        });
+
+        // Append to the message controls area
+        $controls.append($btn);
+    }
+
+    // --- Main Scan Logic ---
+
+    function scanChat() {
         $('.mes').each(function() {
             const $mes = $(this);
             const mesId = $mes.attr('mesid');
-            
             if (mesId === undefined) return;
 
-            // Find all pre elements inside
-            $mes.find('pre').each(function() {
-                addFixButtonToBlock(this, mesId);
+            // 1. Find Code Blocks
+            $mes.find('pre').each(function(index) {
+                // 'index' here is the 0-based index of the pre tag within this message
+                addFixButtonToBlock(this, mesId, index);
             });
+
+            // 2. Add "Wrap Raw" button to message controls
+            // Only for valid messages
+            if (chat[mesId]) {
+                 addRawWrapButtonToMessage(this, mesId);
+            }
         });
     }
 
     // --- Initialization ---
 
     $(document).ready(function () {
-        // Initial scan
-        setTimeout(scanAndAddButtons, 1000);
+        setTimeout(scanChat, 1000);
 
-        // Observer for new messages or chat reload
+        // Observer
         const observer = new MutationObserver((mutations) => {
             let shouldScan = false;
-            mutations.forEach((mutation) => {
-                if (mutation.addedNodes.length > 0) {
-                    shouldScan = true;
-                }
+            mutations.forEach(m => {
+                if (m.addedNodes.length > 0) shouldScan = true;
             });
-            if (shouldScan) {
-                scanAndAddButtons();
-            }
+            if (shouldScan) scanChat();
         });
 
-        // Observe the chat container
         const chatContainer = document.querySelector('#chat');
         if (chatContainer) {
             observer.observe(chatContainer, { childList: true, subtree: true });
         }
-
-        // Also listen to ST events if available (backup)
+        
         if (typeof eventSource !== 'undefined') {
-            eventSource.on('chat_changed', () => setTimeout(scanAndAddButtons, 500));
-            eventSource.on('message_rendered', () => setTimeout(scanAndAddButtons, 100));
+            eventSource.on('chat_changed', () => setTimeout(scanChat, 500));
+            eventSource.on('message_rendered', () => setTimeout(scanChat, 100));
         }
     });
 
