@@ -1,3 +1,13 @@
+import { initFixHtmlExtension } from './features/fix_html';
+
+// ... existing code ...
+
+const main = async () => {
+    // ... existing code ...
+    
+    // Initialize the Fix HTML feature
+    initFixHtmlExtension();
+};
 const extensionName = "html-healer";
 
 // --- 1. Logic (Analysis & Fix) ---
