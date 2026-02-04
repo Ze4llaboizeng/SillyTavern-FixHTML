@@ -1,115 +1,250 @@
 :root {
-    --healer-bg: #1e1b24; /* Dark Lavender */
-    --healer-header: #2a2730;
-    --healer-border: rgba(166, 177, 225, 0.3);
-    --healer-text: #f4f4f8;
-    --healer-accent: #b39ddb; /* Soft Purple */
-    --healer-accent-hover: #d1c4e9;
-    --healer-success: #81c784;
-    --healer-warning: #ffb74d;
-    --healer-item-bg: rgba(255, 255, 255, 0.03);
+    /* Color Palette - Modern Lavender Dark */
+    --healer-bg: rgba(30, 27, 36, 0.95); /* พื้นหลังเกือบทึบ */
+    --healer-header: rgba(42, 39, 48, 0.98);
+    --healer-footer: rgba(30, 27, 36, 0.98);
+    --healer-border: rgba(166, 177, 225, 0.15);
+    
+    --healer-text-main: #f4f4f8;
+    --healer-text-sub: #a6b1e1;
+    
+    --healer-accent: #90caf9;       /* สีฟ้าอ่อน (Highlight) */
+    --healer-accent-hover: #64b5f6; 
+    
+    --healer-think-bg: rgba(33, 150, 243, 0.08);
+    --healer-think-border: #2196f3;
+    --healer-think-text: #64b5f6;
+    
+    --healer-story-bg: rgba(76, 175, 80, 0.08);
+    --healer-story-border: #4caf50;
+    --healer-story-text: #81c784;
+
+    --healer-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+    --glass-blur: blur(12px);
 }
 
 .html-healer-box * { box-sizing: border-box; }
 
-/* OVERLAY: จัดกลางหน้าจอเสมอ */
+/* Overlay - ฉากหลังมืด */
 .html-healer-overlay {
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    z-index: 20000; background: rgba(0,0,0,0.7);
-    backdrop-filter: blur(5px);
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    z-index: 99999; 
+    background: rgba(0, 0, 0, 0.7);
     display: flex; align-items: center; justify-content: center;
-    padding: 20px;
+    backdrop-filter: blur(4px);
+    padding: 10px;
+    opacity: 0; animation: healerFadeIn 0.2s forwards; /* Animation เข้า */
 }
 
-/* BOX: Responsive ไม่ตกขอบ */
+/* Modal Box - กล่องหลัก */
 .html-healer-box {
-    width: 100%; max-width: 800px; 
-    max-height: 90vh; /* กันยาวเกินจอ */
+    width: 100%; max-width: 900px; 
+    max-height: 90vh; /* ล็อคความสูงไม่ให้เกินจอ */
+    height: 90vh;     /* บังคับความสูงเต็มพื้นที่ที่กำหนด */
+    
     background: var(--healer-bg);
     border: 1px solid var(--healer-border);
     border-radius: 16px;
-    display: flex; flex-direction: column;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
-    overflow: hidden;
-    animation: healer-fadein 0.2s ease-out;
+    box-shadow: var(--healer-shadow);
+    
+    display: flex; 
+    flex-direction: column; /* เรียงบนลงล่าง */
+    overflow: hidden; /* ห้าม Scroll ที่ตัวกล่องหลัก */
+    transform: scale(0.95); animation: healerPopIn 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards;
 }
 
-@keyframes healer-fadein { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
-
-/* HEADER */
+/* --- HEADER (Fixed Top) --- */
 .healer-header {
+    flex-shrink: 0; /* ห้ามหด */
+    height: 56px;
+    padding: 0 15px;
     background: var(--healer-header);
-    padding: 15px 20px;
-    display: flex; justify-content: space-between; align-items: center;
     border-bottom: 1px solid var(--healer-border);
-    flex-shrink: 0;
+    display: flex; justify-content: space-between; align-items: center;
 }
-.header-brand { display: flex; gap: 10px; align-items: center; font-size: 1.1em; color: var(--healer-accent); font-weight: bold; }
+.header-brand { display: flex; gap: 10px; align-items: center; }
+.header-icon { font-size: 1.2em; color: var(--healer-accent); filter: drop-shadow(0 0 5px rgba(144, 202, 249, 0.4)); }
+.header-text .title { font-weight: 700; color: var(--healer-text-main); font-size: 1em; letter-spacing: 0.5px; }
+
 .header-controls { display: flex; gap: 10px; align-items: center; }
-.close-btn { cursor: pointer; color: var(--healer-text); opacity: 0.7; transition: 0.2s; font-size: 1.2em; }
-.close-btn:hover { opacity: 1; color: #ff8a80; }
-
-/* BODY: ยืดหยุ่น */
-.healer-body { flex: 1; overflow-y: auto; padding: 0; display: flex; flex-direction: column; }
-.view-section { padding: 15px; display: flex; flex-direction: column; gap: 10px; height: 100%; }
-
-/* CHECKLIST STYLE (NEW) */
-.checklist-container {
-    display: flex; flex-direction: column; gap: 8px;
-    padding: 10px;
+.close-btn { 
+    cursor: pointer; width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--healer-text-sub); transition: all 0.2s;
 }
-.checklist-item {
-    display: flex; align-items: center; gap: 12px;
-    background: var(--healer-item-bg);
-    padding: 12px; border-radius: 8px;
-    border: 1px solid transparent;
-    transition: 0.2s; cursor: pointer;
-}
-.checklist-item:hover { background: rgba(255,255,255,0.06); border-color: var(--healer-accent); }
-.checklist-checkbox { transform: scale(1.2); cursor: pointer; accent-color: var(--healer-accent); }
-.item-info { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.item-id { font-size: 0.75em; color: var(--healer-accent); font-weight: bold; margin-bottom: 2px; }
-.item-preview { font-size: 0.9em; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.item-badge { font-size: 0.7em; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.1); color: #aaa; }
+.close-btn:hover { background: rgba(255,255,255,0.1); color: #fff; transform: rotate(90deg); }
 
-/* EDITOR AREAS */
+/* --- TOOLBAR & PICKER (Scrollable if needed, but usually fixed height) --- */
+.healer-toolbar-top { 
+    flex-shrink: 0; 
+    padding: 8px 15px; background: rgba(0,0,0,0.2); 
+    border-bottom: 1px solid var(--healer-border);
+    text-align: right;
+}
+.reset-btn { 
+    background: transparent; border: 1px solid var(--healer-text-sub); 
+    color: var(--healer-text-sub); border-radius: 6px; 
+    padding: 4px 10px; cursor: pointer; font-size: 0.8em; transition: 0.2s;
+}
+.reset-btn:hover { background: var(--healer-text-sub); color: #222; }
+
 .segment-picker-area {
-    background: rgba(0,0,0,0.2); border-bottom: 1px solid var(--healer-border);
-    height: 120px; display: flex; flex-direction: column;
+    flex-shrink: 0; /* ห้ามหด */
+    height: 140px; 
+    background: rgba(0,0,0,0.15);
+    border-bottom: 1px solid var(--healer-border);
+    display: flex; flex-direction: column;
 }
-.segment-scroller { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 4px; }
-
-.editor-group { display: flex; flex-direction: column; border: 1px solid var(--healer-border); border-radius: 8px; overflow: hidden; margin-bottom: 10px; }
-.group-toolbar { padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; font-size: 0.85em; font-weight: bold; }
-textarea { 
-    width: 100%; min-height: 100px; border: none; background: rgba(0,0,0,0.1); 
-    color: #eee; padding: 10px; resize: vertical; font-family: monospace; font-size: 14px; 
+.segment-scroller { 
+    flex: 1; overflow-y: auto; 
+    padding: 8px; display: flex; flex-direction: column; gap: 4px; 
+    /* Scrollbar สวยๆ */
+    scrollbar-width: thin; scrollbar-color: var(--healer-text-sub) transparent;
 }
-textarea:focus { outline: none; background: rgba(0,0,0,0.2); }
+.picker-instruction { 
+    padding: 4px; text-align: center; font-size: 0.75em; 
+    background: rgba(0,0,0,0.3); color: var(--healer-text-sub);
+}
 
-/* Colors */
-.think-group .group-toolbar { background: rgba(33, 150, 243, 0.15); color: #64b5f6; }
-.think-group { border-color: rgba(33, 150, 243, 0.3); }
-.main-group .group-toolbar { background: rgba(129, 199, 132, 0.15); color: #81c784; }
-.main-group { border-color: rgba(129, 199, 132, 0.3); }
+/* Segments Items */
+.segment-block {
+    padding: 8px 12px; border-radius: 6px; cursor: pointer;
+    font-size: 0.85em; display: flex; align-items: center; gap: 10px;
+    border-left: 3px solid transparent; transition: background 0.2s;
+}
+.segment-block:hover { filter: brightness(1.2); }
+.segment-block.type-think { border-color: var(--healer-think-border); background: var(--healer-think-bg); color: var(--healer-text-sub); opacity: 0.8; }
+.segment-block.type-story { border-color: var(--healer-story-border); background: var(--healer-story-bg); color: #fff; font-weight: 500; }
+.seg-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* FOOTER */
+/* --- BODY (SCROLLABLE AREA) --- */
+.healer-body {
+    flex: 1; /* ยืดจนเต็มพื้นที่ที่เหลือ */
+    min-height: 0; /* สำคัญมาก! เพื่อให้ Scroll ทำงานใน Flex child */
+    display: flex; 
+    flex-direction: column;
+    overflow-y: auto; /* Scroll เฉพาะส่วนเนื้อหา */
+    padding: 15px;
+    background: rgba(0,0,0,0.1);
+}
+
+.view-section { 
+    display: flex; flex-direction: column; gap: 15px; 
+    height: 100%; /* เต็มพื้นที่ Body */
+}
+
+/* Editor Groups */
+.editor-group {
+    display: flex; flex-direction: column;
+    border-radius: 8px; overflow: hidden;
+    background: rgba(0,0,0,0.2);
+    border: 1px solid transparent;
+    transition: all 0.2s;
+    /* ถ้าในหน้า Split/Highlight ให้ยืดเต็ม */
+    flex: 1; 
+}
+.editor-group:focus-within { border-color: rgba(255,255,255,0.1); box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+
+.group-toolbar {
+    padding: 6px 12px; display: flex; justify-content: space-between; align-items: center;
+    font-size: 0.8em; font-weight: 600; letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+.editor-group.think-group { border-color: var(--healer-think-border); }
+.editor-group.think-group .group-toolbar { background: var(--healer-think-bg); color: var(--healer-think-text); }
+.editor-group.think-group textarea { color: #d1eaff; }
+
+.editor-group.main-group { border-color: var(--healer-story-border); }
+.editor-group.main-group .group-toolbar { background: var(--healer-story-bg); color: var(--healer-story-text); }
+
+/* Highlight Mode Styles */
+.editor-group.highlight-border { border-color: var(--healer-accent); height: 100%; }
+.editor-group.highlight-border .group-toolbar { background: rgba(144, 202, 249, 0.15); color: var(--healer-accent); }
+.action-btn { 
+    background: var(--healer-accent); color: #1e1b24; border: none; 
+    border-radius: 4px; padding: 4px 10px; font-weight: bold; cursor: pointer;
+    font-size: 0.9em; box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+.action-btn:hover { background: #fff; }
+
+/* Textarea */
+textarea {
+    flex: 1; /* ยืดเต็มพื้นที่ Group */
+    width: 100%; min-height: 100px;
+    border: none; background: transparent;
+    color: #eee; padding: 12px;
+    resize: none; /* ห้าม user ลากเอง เพราะเราให้มันยืดเต็ม Container แล้ว */
+    outline: none; font-family: 'Consolas', 'Monaco', monospace; 
+    font-size: 14px; line-height: 1.5;
+}
+
+/* --- FOOTER (Fixed Bottom) --- */
 .healer-footer {
-    padding: 15px 20px; background: var(--healer-header);
+    flex-shrink: 0; /* ห้ามหด */
+    padding: 15px;
+    background: var(--healer-footer);
     border-top: 1px solid var(--healer-border);
-    display: flex; gap: 10px; justify-content: flex-end;
+    display: flex; justify-content: center;
+    z-index: 10; /* ลอยเหนือ content */
 }
-.btn {
-    padding: 8px 16px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer;
-    font-size: 0.9em; display: flex; align-items: center; gap: 6px; transition: 0.2s;
-}
-.btn-primary { background: var(--healer-accent); color: #222; }
-.btn-primary:hover { background: var(--healer-accent-hover); }
-.btn-secondary { background: rgba(255,255,255,0.1); color: #ddd; }
-.btn-secondary:hover { background: rgba(255,255,255,0.2); }
 
-/* MOBILE */
+.save-button {
+    width: 100%;
+    background: linear-gradient(135deg, var(--healer-accent) 0%, var(--healer-accent-hover) 100%);
+    color: #1a1a1a;
+    border: none; padding: 12px;
+    border-radius: 10px;
+    font-weight: 800; font-size: 1rem; letter-spacing: 0.5px;
+    cursor: pointer;
+    box-shadow: 0 4px 15px rgba(144, 202, 249, 0.25);
+    transition: all 0.2s;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.save-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(144, 202, 249, 0.4);
+    filter: brightness(1.1);
+}
+.save-button:active { transform: translateY(0); }
+
+.author-pill {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(255, 255, 255, 0.05); padding: 4px 12px 4px 4px;
+    border-radius: 20px; border: 1px solid var(--healer-border);
+}
+.author-pill img { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
+.author-pill .author-name { font-size: 0.8em; color: var(--healer-text-sub); font-weight: 600; }
+
+
+/* Animations */
+@keyframes healerFadeIn { to { opacity: 1; } }
+@keyframes healerPopIn { to { transform: scale(1); } }
+
+/* Mobile Tweaks */
 @media screen and (max-width: 600px) {
-    .html-healer-box { max-height: 100vh; height: 100%; border-radius: 0; }
-    .header-brand span { display: none; } /* Hide title on small screens */
+    .html-healer-box { 
+        width: 95%; height: 95vh; max-height: 95vh; /* เต็มจอมากขึ้นบนมือถือ */
+    }
+    .header-brand .title { display: none; } /* ซ่อนชื่อบนมือถือถ้าที่แคบ */
+    .segment-picker-area { height: 120px; }
+    .author-pill { display: none; } /* ซ่อนผู้แต่งบนมือถือ */
+}
+
+/* --- Floating Button (Code Block Fix) --- */
+.html-healer-float-btn {
+    position: absolute; top: 8px; right: 8px; z-index: 100;
+    background: rgba(33, 150, 243, 0.9);
+    color: white;
+    font-family: sans-serif; font-size: 0.75rem; font-weight: 600;
+    padding: 4px 12px; border-radius: 6px;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.2);
+    transition: all 0.2s;
+    opacity: 0; animation: healerFadeIn 0.3s forwards;
+}
+.html-healer-float-btn:hover {
+    background: #2196f3; transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(33, 150, 243, 0.4);
 }
