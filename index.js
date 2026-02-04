@@ -1,7 +1,7 @@
 const extensionName = "html-healer";
 const authorConfig = {
     name: "Zealllll",
-    avatarUrl: "scripts/extensions/third-party/SillyTavern-FixHTML-release/avatar.png"
+    avatarUrl: "scripts/extensions/third-party/SillyTavern-FixHTML/avatar.png"
 };
 
 let logic = null;
