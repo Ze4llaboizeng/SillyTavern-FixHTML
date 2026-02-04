@@ -3,9 +3,7 @@ export class HtmlHealerUI {
         this.config = authorConfig;
     }
 
-    /**
-     * สร้าง Header HTML
-     */
+    // ... (ฟังก์ชันเดิมของ Modal: _getHeaderHtml, renderEditorModal, etc. เก็บไว้) ...
     _getHeaderHtml(title, icon) {
         return `
         <div class="healer-header">
@@ -18,107 +16,64 @@ export class HtmlHealerUI {
                     <img src="${this.config.avatarUrl}" onerror="this.style.display='none'">
                     <span class="author-name">${this.config.name}</span>
                 </div>
-                <div class="close-btn" id="healer-close-btn">
-                    <i class="fa-solid fa-xmark"></i>
-                </div>
+                <div class="close-btn" id="healer-close-btn"><i class="fa-solid fa-xmark"></i></div>
             </div>
         </div>`;
     }
 
-    /**
-     * แสดง Modal Editor แบบเต็ม
-     */
-    renderEditorModal(segments, callbacks) {
+    renderEditorModal(segments, callbacks) { /* ... โค้ดเดิม ... */ 
         const modalHtml = `
         <div id="html-healer-modal" class="html-healer-overlay">
             <div class="html-healer-box">
                 ${this._getHeaderHtml('Editor (Clean Cut)', '<i class="fa-solid fa-layer-group"></i>')}
-                
                 <div class="healer-toolbar-top">
                      <button class="reset-btn" id="btn-reset-split" title="Reset"><i class="fa-solid fa-rotate-left"></i> Reset Segments</button>
                 </div>
-
                 <div class="segment-picker-area">
                     <div class="segment-scroller" id="segment-container"></div>
-                    <div class="picker-instruction">
-                        <i class="fa-solid fa-arrow-pointer"></i> Click on the first Story line (Everything above becomes Think)
-                    </div>
+                    <div class="picker-instruction"><i class="fa-solid fa-arrow-pointer"></i> Click on the first Story line</div>
                 </div>
-                
                 <div class="healer-body">
                     <div class="view-section active">
-                        <!-- Think Section -->
                         <div class="editor-group think-group">
-                            <div class="group-toolbar think-bg">
-                                <span class="label think-color"><i class="fa-solid fa-brain"></i> Thinking</span>
-                                <span class="word-count" id="count-cot">0w</span>
-                            </div>
+                            <div class="group-toolbar think-bg"><span class="label think-color"><i class="fa-solid fa-brain"></i> Thinking</span><span class="word-count" id="count-cot">0w</span></div>
                             <textarea id="editor-cot" class="think-border" placeholder="Thinking process..."></textarea>
                         </div>
-
-                        <!-- Story Section -->
                         <div class="editor-group main-group">
-                            <div class="group-toolbar story-bg">
-                                <span class="label story-color"><i class="fa-solid fa-comments"></i> Story</span>
-                                <span class="word-count" id="count-main">0w</span>
-                            </div>
+                            <div class="group-toolbar story-bg"><span class="label story-color"><i class="fa-solid fa-comments"></i> Story</span><span class="word-count" id="count-main">0w</span></div>
                             <textarea id="editor-main" class="story-border" placeholder="Story content..."></textarea>
                         </div>
                     </div>
                 </div>
-
                 <div class="healer-footer">
-                    <button id="btn-save-split" class="save-button">
-                        <i class="fa-solid fa-floppy-disk"></i> Merge & Save
-                    </button>
+                    <button id="btn-save-split" class="save-button"><i class="fa-solid fa-floppy-disk"></i> Merge & Save</button>
                 </div>
             </div>
         </div>`;
-
-        // ลบอันเก่าออกก่อน (ถ้ามี)
         $('#html-healer-modal').remove();
         $(document.body).append(modalHtml);
-
-        // Bind Events
         $('#healer-close-btn').on('click', () => this.closeModal());
         $('#btn-save-split').on('click', callbacks.onSave);
         $('#btn-reset-split').on('click', callbacks.onReset);
-        $('#segment-container').on('click', '.segment-block', function() {
-            callbacks.onSegmentClick($(this).data('id'));
-        });
+        $('#segment-container').on('click', '.segment-block', function() { callbacks.onSegmentClick($(this).data('id')); });
         $('#editor-cot, #editor-main').on('input', callbacks.onInput);
     }
-
-    /**
-     * Render รายการ Segments ในช่องเลือก
-     */
+    
     renderSegmentsList(segments) {
         const container = $('#segment-container');
         container.empty();
-        
         const firstStoryIndex = segments.findIndex(s => s.type === 'story');
-
         segments.forEach((seg, index) => {
             const isThink = seg.type === 'think';
             const icon = isThink ? '<i class="fa-solid fa-brain"></i>' : '<i class="fa-solid fa-comment"></i>';
             const classes = isThink ? 'type-think' : 'type-story';
             const isStartStory = (index === firstStoryIndex);
-
-            container.append(`
-                <div class="segment-block ${classes}" data-id="${seg.id}">
-                    <div class="seg-icon">${icon}</div>
-                    <div class="seg-text">${seg.text.substring(0, 60) || "(empty line)"}</div>
-                    ${isStartStory ? '<div class="seg-badge">Start Story</div>' : ''}
-                </div>
-            `);
+            container.append(`<div class="segment-block ${classes}" data-id="${seg.id}"><div class="seg-icon">${icon}</div><div class="seg-text">${seg.text.substring(0, 60) || "(empty line)"}</div>${isStartStory ? '<div class="seg-badge">Start Story</div>' : ''}</div>`);
         });
     }
 
-    /**
-     * แสดง Modal Highlight Fixer
-     */
-    renderHighlightModal(originalText, callbacks) {
-        const modalHtml = `
+    renderHighlightModal(originalText, callbacks) { /* ... โค้ดเดิม ... */ 
+         const modalHtml = `
         <div id="html-healer-modal" class="html-healer-overlay">
             <div class="html-healer-box highlight-mode">
                 ${this._getHeaderHtml("Split (Highlight)", '<i class="fa-solid fa-highlighter"></i>')}
@@ -128,9 +83,7 @@ export class HtmlHealerUI {
                             <div class="group-toolbar highlight-bg">
                                 <span class="label highlight-text-color"><i class="fa-solid fa-i-cursor"></i> Highlight broken part</span>
                                 <div class="toolbar-actions">
-                                    <button class="action-btn" id="btn-heal-selection">
-                                        <i class="fa-solid fa-wand-magic-sparkles"></i> Fix Selection
-                                    </button>
+                                    <button class="action-btn" id="btn-heal-selection"><i class="fa-solid fa-wand-magic-sparkles"></i> Fix Selection</button>
                                 </div>
                             </div>
                             <textarea id="editor-targeted" placeholder="Message content...">${originalText}</textarea>
@@ -138,35 +91,39 @@ export class HtmlHealerUI {
                     </div>
                 </div>
                 <div class="healer-footer">
-                    <button id="btn-save-targeted" class="save-button highlight-btn-bg">
-                        <i class="fa-solid fa-floppy-disk"></i> Save Changes
-                    </button>
+                    <button id="btn-save-targeted" class="save-button highlight-btn-bg"><i class="fa-solid fa-floppy-disk"></i> Save Changes</button>
                 </div>
             </div>
         </div>`;
-
         $('#html-healer-modal').remove();
         $(document.body).append(modalHtml);
-
-        // Bind Events
         $('#healer-close-btn').on('click', () => this.closeModal());
-        $('#btn-heal-selection').on('mousedown', (e) => e.preventDefault()); // กันแย่ง focus
+        $('#btn-heal-selection').on('mousedown', (e) => e.preventDefault());
         $('#btn-heal-selection').on('click', callbacks.onFixSelection);
         $('#btn-save-targeted').on('click', callbacks.onSave);
     }
 
-    closeModal() {
-        $('#html-healer-modal').remove();
-    }
+    closeModal() { $('#html-healer-modal').remove(); }
+    updateWordCounts(cotCount, mainCount) { $('#count-cot').text(cotCount + "w"); $('#count-main').text(mainCount + "w"); }
+    setEditorValues(thinkText, storyText) { $('#editor-cot').val(thinkText); $('#editor-main').val(storyText); if (!thinkText) $('.think-group').hide(); else $('.think-group').show(); }
 
-    updateWordCounts(cotCount, mainCount) {
-        $('#count-cot').text(cotCount + "w");
-        $('#count-main').text(mainCount + "w");
-    }
-    
-    setEditorValues(thinkText, storyText) {
-        $('#editor-cot').val(thinkText);
-        $('#editor-main').val(storyText);
-        if (!thinkText) $('.think-group').hide(); else $('.think-group').show();
+    // --- NEW FEATURE ---
+    /**
+     * สร้างปุ่มลอยสำหรับแปะลงใน DOM
+     */
+    createFloatingFixButton(onClick) {
+        const btn = document.createElement('div');
+        btn.className = 'html-healer-float-btn';
+        btn.innerHTML = '<i class="fa-solid fa-code"></i> Fix &lt;/html&gt;';
+        btn.title = "Click to append </html> to this block";
+        
+        // Prevent default click propagation to avoid triggering message editing etc.
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            onClick(e);
+        });
+        
+        return btn;
     }
 }
