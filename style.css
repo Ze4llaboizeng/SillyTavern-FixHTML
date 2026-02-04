@@ -135,3 +135,36 @@ textarea { flex: 1; width: 100%; border: none; background: transparent; color: #
     .author-pill .author-name { display: inline-block; }
     .segment-picker-area { height: 150px; }
 }
+
+.js-runner-fix-btn {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    z-index: 100;
+    padding: 4px 10px;
+    background-color: #2e7d32; /* Green shade matching the 'Safe/Fix' vibe */
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.2s, transform 0.1s;
+    font-family: sans-serif;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.js-runner-fix-btn:hover {
+    opacity: 1;
+    transform: scale(1.05);
+    background-color: #388e3c;
+}
+
+.js-runner-fix-btn:active {
+    transform: scale(0.95);
+}
+
+/* Ensure Pre blocks can handle the absolute button */
+pre {
+    position: relative; 
+}
