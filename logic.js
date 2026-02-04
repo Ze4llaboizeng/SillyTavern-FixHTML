@@ -1,55 +1,11 @@
 export class HtmlHealerLogic {
     constructor() {
         this.voidTags = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
+        
+        // Regex Pattern: จับ Code Block ที่เริ่มด้วย <div
         this.codeBlockRegex = /(```\w*\n\s*<div[\s\S]*?)(\n```)/g;
     }
 
-    // --- SCANNER SYSTEM (NEW) ---
-    /**
-     * สแกนข้อความทั้งแชทเพื่อหาปัญหาตามประเภทที่ระบุ
-     * @param {Array} chatArray - Array ของข้อความ
-     * @param {string} type - 'html' หรือ 'codeblock'
-     * @returns {Array} - รายการ Candidates [{ index, original, fixed }]
-     */
-    scanForIssues(chatArray, type) {
-        let candidates = [];
-
-        chatArray.forEach((msg, index) => {
-            if (!msg.mes) return; // ข้าม System/Image prompts
-
-            const original = msg.mes;
-            let fixed = original;
-            let foundIssue = false;
-
-            if (type === 'html') {
-                // เช็ค HTML ทั่วไป
-                fixed = this.fixHtml(original);
-                // เช็คว่าแก้ไขแล้วต่างจากเดิมไหม
-                if (fixed !== original) foundIssue = true;
-            } else if (type === 'codeblock') {
-                // เช็ค Code Block
-                this.codeBlockRegex.lastIndex = 0;
-                if (this.codeBlockRegex.test(original)) {
-                    fixed = this.fixUnclosedDivsInCodeBlock(original);
-                    if (fixed !== original) foundIssue = true;
-                }
-            }
-
-            if (foundIssue) {
-                candidates.push({
-                    index: index,
-                    name: msg.name || "User",
-                    original: original,
-                    fixed: fixed,
-                    preview: original.substring(0, 80).replace(/\n/g, " ") + "..."
-                });
-            }
-        });
-
-        return candidates;
-    }
-
-    // --- EXISTING LOGIC ---
     parseSegments(rawText) {
         if (!rawText) return { segments: [], isThinkBroken: false };
         let cleanText = rawText.replace(/&lt;think&gt;/gi, "<think>").replace(/&lt;\/think&gt;/gi, "</think>");
@@ -70,6 +26,7 @@ export class HtmlHealerLogic {
         return { segments, isThinkBroken };
     }
 
+    // Fix 1: แก้ HTML ทั่วไป (Stack Logic)
     fixHtml(text) {
         if (!text) return "";
         const tagRegex = /<(\/?)([a-zA-Z0-9\-\_\.\:]+)([^>]*?)(\/?)>/g;
@@ -106,15 +63,22 @@ export class HtmlHealerLogic {
         return result;
     }
 
-    fixUnclosedDivsInCodeBlock(text) {
-        if (!text) return text;
-        this.codeBlockRegex.lastIndex = 0;
-        if (!this.codeBlockRegex.test(text)) return text;
-        return text.replace(this.codeBlockRegex, '$1\n</html>$2');
-    }
-
     countWords(str) {
         if (!str) return 0;
         return str.trim().split(/\s+/).length;
+    }
+
+    // Fix 2: แก้ Code Block (Regex Logic)
+    // ทำงานเมื่อถูกสั่งเท่านั้น (ผ่านปุ่ม)
+    fixUnclosedDivsInCodeBlock(text) {
+        if (!text) return "";
+        this.codeBlockRegex.lastIndex = 0;
+        
+        // ตรวจสอบว่ามี Code Block ที่ตรงเงื่อนไขไหม
+        if (!this.codeBlockRegex.test(text)) return text;
+
+        // ถ้ามี ให้ทำการแทรก </html>
+        this.codeBlockRegex.lastIndex = 0;
+        return text.replace(this.codeBlockRegex, '$1\n</html>$2');
     }
 }
