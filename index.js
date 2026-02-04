@@ -11,8 +11,6 @@ let ui = null;
 let initialSegments = [];
 let currentSegments = [];
 let targetMessageId = null;
-// Store candidates to fix
-let currentCandidates = [];
 
 jQuery(async () => {
     try {
@@ -23,110 +21,86 @@ jQuery(async () => {
         ui = new HtmlHealerUI(authorConfig);
         
         initSettings();
-        console.log(`[${extensionName}] Modules loaded. UI Refreshed.`);
+        console.log(`[${extensionName}] Modules loaded. Ready.`);
     } catch (e) {
-        console.error(`[${extensionName}] Failed:`, e);
-        toastr.error("HTML Healer failed to load.");
+        console.error(`[${extensionName}] Failed to load modules:`, e);
+        toastr.error("HTML Healer failed to load modules.");
     }
 });
 
 function getContext() { return SillyTavern.getContext(); }
 
-// --- Button Actions (Refactored to Scanner) ---
+// --- Button Actions ---
 
 /**
- * 1. Auto Fix HTML (Scanner Mode)
- * สแกนทั้งแชทหา HTML Tags ที่พัง
+ * 1. Auto Fix HTML (เดิม)
+ * แก้ไขเฉพาะ Tag ทั่วไป และเช็ค Think
+ * (ไม่ยุ่งกับ Code Block แล้ว)
  */
 async function performSmartQuickFix() {
     const context = getContext();
     const chat = context.chat;
     if (!chat || chat.length === 0) return toastr.warning("No messages.");
+    
+    const lastIndex = chat.length - 1;
+    const originalText = chat[lastIndex].mes;
 
-    // 1. สแกนหาข้อความที่มีปัญหา
-    const candidates = logic.scanForIssues(chat, 'html');
-    currentCandidates = candidates; // เก็บไว้ใช้ตอนกด Apply
-
-    if (candidates.length === 0) {
-        return toastr.success("All messages look good! No HTML issues found.");
+    // Safety Check for Think
+    const { isThinkBroken } = logic.parseSegments(originalText);
+    if (isThinkBroken) {
+        toastr.warning("Think is broken! Please click where the Story starts.", "Fix Required");
+        openBlockEditor();
+        return;
     }
 
-    // 2. ถ้าเจอ ให้เปิด Checklist Modal
-    ui.renderChecklistModal("Auto Fix HTML", candidates, async (selectedIndices) => {
-        if (selectedIndices.length === 0) return;
+    // Fix only General HTML (Stack)
+    const fixedText = logic.fixHtml(originalText);
 
-        let fixCount = 0;
-        // วนลูปแก้เฉพาะ Index ที่เลือก
-        selectedIndices.forEach(idx => {
-            const candidate = currentCandidates.find(c => c.index === idx);
-            if (candidate) {
-                chat[idx].mes = candidate.fixed;
-                fixCount++;
-            }
-        });
-
-        if (fixCount > 0) {
-            await context.saveChat();
-            await context.reloadCurrentChat();
-            toastr.success(`Fixed ${fixCount} messages!`);
-        }
-        ui.closeModal();
-    });
+    if (fixedText !== originalText) {
+        chat[lastIndex].mes = fixedText;
+        await context.saveChat();
+        await context.reloadCurrentChat();
+        toastr.success("Fixed HTML structure!");
+    } else {
+        toastr.success("HTML looks perfect!");
+    }
 }
 
 /**
- * 2. Complete Code Block (Scanner Mode)
- * สแกนหา Code Block ที่ไม่มี </html>
+ * 2. Complete Code Block (ใหม่)
+ * ปุ่มนี้แยกออกมาเพื่อแก้ Code Block โดยเฉพาะ
+ * สแกนหา ``` ที่มี <div แล้วเติม </html>
  */
 async function performCodeBlockFix() {
     const context = getContext();
     const chat = context.chat;
     if (!chat || chat.length === 0) return toastr.warning("No messages.");
 
-    // 1. สแกน
-    const candidates = logic.scanForIssues(chat, 'codeblock');
-    currentCandidates = candidates;
+    const lastIndex = chat.length - 1;
+    const originalText = chat[lastIndex].mes;
 
-    if (candidates.length === 0) {
-        return toastr.info("No broken code blocks found in history.");
+    // เรียก Logic แก้ Code Block
+    const fixedText = logic.fixUnclosedDivsInCodeBlock(originalText);
+
+    if (fixedText !== originalText) {
+        chat[lastIndex].mes = fixedText;
+        await context.saveChat();
+        await context.reloadCurrentChat();
+        toastr.success("Completed code blocks!");
+    } else {
+        toastr.info("No broken code blocks found.");
     }
-
-    // 2. เปิด Modal
-    ui.renderChecklistModal("Complete Code Blocks", candidates, async (selectedIndices) => {
-        if (selectedIndices.length === 0) return;
-
-        let fixCount = 0;
-        selectedIndices.forEach(idx => {
-            const candidate = currentCandidates.find(c => c.index === idx);
-            if (candidate) {
-                chat[idx].mes = candidate.fixed;
-                fixCount++;
-            }
-        });
-
-        if (fixCount > 0) {
-            await context.saveChat();
-            await context.reloadCurrentChat();
-            toastr.success(`Completed blocks in ${fixCount} messages!`);
-        }
-        ui.closeModal();
-    });
 }
 
-// --- Editor Functions (Keep Existing) ---
 function openBlockEditor() {
     const context = getContext();
     const chat = context.chat;
     if (!chat || chat.length === 0) return toastr.warning("No messages.");
     targetMessageId = chat.length - 1;
     const originalText = chat[targetMessageId].mes;
-    
-    // Check think first
-    const { segments, isThinkBroken } = logic.parseSegments(originalText);
-    
-    initialSegments = segments;
+    const result = logic.parseSegments(originalText);
+    initialSegments = result.segments;
     currentSegments = JSON.parse(JSON.stringify(initialSegments));
-    
     ui.renderEditorModal(currentSegments, {
         onSave: handleSaveSplit,
         onReset: () => { currentSegments = JSON.parse(JSON.stringify(initialSegments)); refreshEditorState(); },
@@ -134,11 +108,7 @@ function openBlockEditor() {
             currentSegments.forEach(seg => { if (seg.id < clickedId) seg.type = 'think'; else seg.type = 'story'; });
             refreshEditorState();
         },
-        onInput: () => { 
-            const cot = $('#editor-cot').val(); 
-            const main = $('#editor-main').val(); 
-            ui.updateWordCounts(logic.countWords(cot), logic.countWords(main)); 
-        }
+        onInput: () => { const cot = $('#editor-cot').val(); const main = $('#editor-main').val(); ui.updateWordCounts(logic.countWords(cot), logic.countWords(main)); }
     });
     refreshEditorState();
 }
@@ -183,16 +153,16 @@ function openHighlightFixer() {
             const textarea = document.getElementById('editor-targeted');
             const start = textarea.selectionStart;
             const end = textarea.selectionEnd;
-            if (start === end) return toastr.warning("Highlight text first!");
+            if (start === end) return toastr.warning("Please highlight code first!");
             const fullText = textarea.value;
             const selectedText = fullText.substring(start, end);
             const fixedSegment = logic.fixHtml(selectedText);
-            if (fixedSegment === selectedText) { toastr.info("No fix needed."); return; }
+            if (fixedSegment === selectedText) { toastr.info("Selection looks valid."); return; }
             const newText = fullText.substring(0, start) + fixedSegment + fullText.substring(end);
             $(textarea).val(newText).trigger('input'); 
             textarea.setSelectionRange(start, start + fixedSegment.length);
             textarea.focus();
-            toastr.success("Fixed!");
+            toastr.success("Fixed selection!");
         },
         onSave: async () => {
             const newMes = $('#editor-targeted').val();
@@ -207,6 +177,7 @@ function openHighlightFixer() {
 function initSettings() {
     if ($('.html-healer-settings').length > 0) return;
     
+    // เพิ่มปุ่ม Complete Block เข้าไปในเมนู
     $('#extensions_settings').append(`
         <div class="html-healer-settings">
             <div class="inline-drawer">
@@ -215,11 +186,11 @@ function initSettings() {
                     <div class="styled_description_block">Editor by ${authorConfig.name}</div>
                     
                     <div style="display:flex; gap:5px; margin-top:5px;">
-                        <div id="html-healer-quick-fix" class="menu_button" style="flex:1; background-color: var(--smart-theme-color, #4caf50);" title="Scan & Fix HTML Tags">
-                            <i class="fa-solid fa-wand-magic-sparkles"></i> Auto Scan
+                        <div id="html-healer-quick-fix" class="menu_button" style="flex:1; background-color: var(--smart-theme-color, #4caf50);" title="Fix General HTML Tags">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> Auto
                         </div>
-                        <div id="html-healer-block-fix" class="menu_button" style="flex:1; background-color: #2196f3;" title="Scan & Complete Code Blocks">
-                            <i class="fa-solid fa-code"></i> Block Scan
+                        <div id="html-healer-block-fix" class="menu_button" style="flex:1; background-color: #2196f3;" title="Inject </html> into Code Blocks">
+                            <i class="fa-solid fa-code"></i> Complete Block
                         </div>
                     </div>
                     
@@ -231,13 +202,14 @@ function initSettings() {
                             <i class="fa-solid fa-highlighter"></i> Split
                         </div>
                     </div>
+
                 </div>
             </div>
         </div>
     `);
     
     $('#html-healer-quick-fix').on('click', performSmartQuickFix);
-    $('#html-healer-block-fix').on('click', performCodeBlockFix);
+    $('#html-healer-block-fix').on('click', performCodeBlockFix); // Bind ปุ่มใหม่
     $('#html-healer-open-editor').on('click', openBlockEditor);
     $('#html-healer-open-split').on('click', openHighlightFixer);
 }
