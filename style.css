@@ -61,32 +61,10 @@ textarea { flex: 1; width: 100%; border: none; background: transparent; color: #
 .highlight-text-color { color: var(--healer-accent); }
 .highlight-btn-bg { background: var(--healer-accent); color: #222; }
 
-/* --- BUTTON STYLE --- */
-.html-healer-float-btn {
-    position: absolute;
-    top: 5px;
-    right: 5px;
-    z-index: 100;
-    background: var(--healer-accent);
-    color: #000;
-    font-size: 0.75rem;
-    font-weight: bold;
-    padding: 3px 10px;
-    border-radius: 4px;
-    cursor: pointer;
-    opacity: 0.8;
-    transition: all 0.2s;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-    border: 1px solid rgba(0,0,0,0.1);
-}
-.html-healer-float-btn:hover {
-    opacity: 1;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.4);
-}
-.html-healer-float-btn:active {
-    transform: translateY(1px);
-}
+/* FOOTER */
+.healer-footer { padding: 8px 10px; background: var(--healer-header); border-top: 1px solid var(--healer-border); display: flex; justify-content: center; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+.save-button { background: #64b5f6; color: #111; border: none; padding: 10px 0; border-radius: 8px; font-weight: bold; cursor: pointer; width: 100%; font-size: 1em; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+.action-btn { background: var(--healer-accent); color: #222; border: none; border-radius: 4px; cursor: pointer; font-size: 0.7em; padding: 2px 8px; font-weight: bold; }
 
 @media screen and (max-width: 600px) {
     .header-brand { display: none; } 
