@@ -3,7 +3,6 @@ export class HtmlHealerUI {
         this.config = authorConfig;
     }
 
-    // --- ส่วนเดิม (Modal) ---
     _getHeaderHtml(title, icon) {
         return `
         <div class="healer-header">
@@ -106,31 +105,4 @@ export class HtmlHealerUI {
     closeModal() { $('#html-healer-modal').remove(); }
     updateWordCounts(cotCount, mainCount) { $('#count-cot').text(cotCount + "w"); $('#count-main').text(mainCount + "w"); }
     setEditorValues(thinkText, storyText) { $('#editor-cot').val(thinkText); $('#editor-main').val(storyText); if (!thinkText) $('.think-group').hide(); else $('.think-group').show(); }
-
-    // --- ส่วนของปุ่ม Smart Fix (NEW) ---
-    /**
-     * สร้างปุ่มลอย (Floating Button)
-     * ปุ่มนี้จะยังไม่แก้โค้ด จนกว่าจะถูกกด (callback onClick)
-     */
-    createFloatingFixButton(onClickCallback) {
-        const btn = document.createElement('div');
-        btn.className = 'html-healer-float-btn';
-        // ใส่ Text ให้รู้ว่าจะแก้ </html>
-        btn.innerHTML = '<i class="fa-solid fa-code"></i> Fix &lt;/html&gt;'; 
-        btn.title = "Inject </html> tag into this block (Click to Apply)";
-        
-        // เมื่อกดปุ่ม ให้เรียก Callback ที่ส่งมาจาก index.js
-        btn.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation(); // กันไม่ให้ไปกดโดน Message หลัก
-            
-            // เปลี่ยนหน้าตาปุ่มนิดหน่อยให้รู้ว่ากำลังทำงาน
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Fixing...';
-            btn.style.opacity = '0.5';
-            
-            onClickCallback(e);
-        });
-        
-        return btn;
-    }
 }
