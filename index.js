@@ -22,7 +22,7 @@ jQuery(async () => {
         ui = new HtmlHealerUI(authorConfig);
         
         initSettings();
-        initChatObserver(); // เริ่มทำงาน Observer
+        initChatObserver(); // เริ่มระบบส่องแชท
         console.log(`[${extensionName}] Modules loaded & Observer started.`);
     } catch (e) {
         console.error(`[${extensionName}] Failed to load modules:`, e);
@@ -33,97 +33,102 @@ jQuery(async () => {
 function getContext() { return SillyTavern.getContext(); }
 
 /**
- * NEW: Watcher คอยส่อง Chat เพื่อหา Code Block เป้าหมาย
+ * ระบบส่องแชท (Observer):
+ * ทำหน้าที่แค่ "แปะปุ่ม" ถ้าเจอ Code Block ที่เข้าข่าย
+ * ยังไม่มีการแก้ไขข้อความใดๆ ทั้งสิ้น จนกว่า user จะกด
  */
 function initChatObserver() {
     const chatContainer = document.querySelector('#chat');
     if (!chatContainer) return;
 
     chatObserver = new MutationObserver((mutations) => {
+        let shouldScan = false;
         mutations.forEach(mutation => {
-            if (mutation.addedNodes.length > 0) {
-                scanAndInjectButtons();
-            }
+            if (mutation.addedNodes.length > 0) shouldScan = true;
         });
+        if (shouldScan) scanAndInjectButtons();
     });
 
     chatObserver.observe(chatContainer, { childList: true, subtree: true });
     
-    // Scan ครั้งแรกเผื่อโหลดมาแล้วมีข้อความเลย
+    // Scan ครั้งแรก
     setTimeout(scanAndInjectButtons, 1000);
 }
 
-/**
- * NEW: สแกน DOM และแปะปุ่ม
- */
 function scanAndInjectButtons() {
-    // หา <pre><code> ทั้งหมดในแชท
+    // วนหา Code block HTML ทั้งหมดในหน้าจอ
     $('#chat .mes_text pre code').each(function() {
         const codeBlock = $(this);
-        const preElement = codeBlock.parent(); // <pre> คือ wrapper
+        const preElement = codeBlock.parent();
         
-        // 1. เช็คว่ามีปุ่มหรือยัง (ถ้ามีแล้วข้าม)
+        // 1. ถ้ามีปุ่มอยู่แล้ว ไม่ต้องทำอะไร
         if (preElement.find('.html-healer-float-btn').length > 0) return;
 
-        // 2. เช็คเนื้อหาใน Code Block (เบื้องต้นดูแค่ว่าเริ่มด้วย <div หรือไม่)
-        // หมายเหตุ: การเช็ค Regex เต็มรูปแบบทำยากใน DOM ที่ render แล้ว
-        // เราจะเช็คคร่าวๆ แล้วตอนกดค่อยไปเช็ค Raw Text จริงๆ
+        // 2. เช็คเนื้อหาหน้าจอคร่าวๆ ว่าน่าจะเป็น HTML Block ที่พังไหม
+        // (เริ่มด้วย <div และไม่มี </html>)
         const textContent = codeBlock.text().trim();
-        
         if (textContent.startsWith('<div') && !textContent.includes('</html>')) {
-            // สร้างปุ่ม
-            const btn = ui.createFloatingFixButton(async (e) => {
-                // หา mesId ของข้อความนี้
+            
+            // 3. สร้างปุ่ม (ยังไม่แก้)
+            const btn = ui.createFloatingFixButton(async () => {
+                // --- ส่วนนี้คือ Flow การแก้ไขจริง เมื่อกดปุ่ม ---
+                
+                // หา ID ของข้อความนั้น
                 const messageDiv = preElement.closest('.mes');
-                const mesId = messageDiv.attr('mesid');
-
-                if (mesId !== undefined) {
-                    await handleInlineFix(mesId);
+                const mesIdStr = messageDiv.attr('mesid');
+                
+                if (mesIdStr !== undefined) {
+                    await handleInlineFixWithRegex(Number(mesIdStr));
                 } else {
                     toastr.error("Could not find Message ID");
                 }
             });
 
-            // แปะปุ่มลงใน <pre>
-            // ต้องปรับ style ของ pre ให้เป็น relative เพื่อให้ปุ่ม absolute ได้
-            if (preElement.css('position') === 'static') {
-                preElement.css('position', 'relative');
-            }
+            // แปะปุ่มลงไป
+            if (preElement.css('position') === 'static') preElement.css('position', 'relative');
             preElement.append(btn);
         }
     });
 }
 
 /**
- * NEW: Action เมื่อกดปุ่มลอย
+ * Flow การแก้ไขจริง (เหมือน Auto Fix):
+ * 1. ดึงข้อความดิบ
+ * 2. รัน Regex แทรก </html>
+ * 3. บันทึกและรีโหลด
  */
-async function handleInlineFix(mesId) {
+async function handleInlineFixWithRegex(mesId) {
     const context = getContext();
     const chat = context.chat;
-    const msgIndex = Number(mesId);
+    
+    if (!chat[mesId]) return;
 
-    if (!chat[msgIndex]) return;
+    const originalText = chat[mesId].mes;
 
-    const originalText = chat[msgIndex].mes;
-
-    // เช็ค Regex จริงๆ ที่นี่
+    // เช็คด้วย Logic Regex (จาก logic.js)
     if (logic.hasBrokenCodeBlock(originalText)) {
+        
+        // ทำการแก้ String
         const fixedText = logic.fixUnclosedDivsInCodeBlock(originalText);
         
         if (fixedText !== originalText) {
-            chat[msgIndex].mes = fixedText;
+            // อัพเดทเข้า DB
+            chat[mesId].mes = fixedText;
             await context.saveChat();
-            await context.reloadCurrentChat(); // รีโหลดเพื่อแสดงผลใหม่
-            toastr.success("Auto-closed div in code block!");
+            
+            // รีโหลดหน้าจอ (ปุ่มจะหายไปเอง เพราะ HTML ถูกแก้แล้ว)
+            await context.reloadCurrentChat(); 
+            
+            toastr.success("Injected </html> & Saved!");
         } else {
-            toastr.info("No matching pattern found to fix.");
+            toastr.info("Regex found no changes needed.");
         }
     } else {
-        toastr.info("Pattern not found in raw text. (Already fixed?)");
+        toastr.warning("Could not find matching pattern in raw text.");
     }
 }
 
-// ... (ฟังก์ชันเดิม performSmartQuickFix, openBlockEditor, openHighlightFixer, initSettings เหมือนเดิม) ...
+// ... (ฟังก์ชันเดิม performSmartQuickFix, openBlockEditor ฯลฯ ยังอยู่เหมือนเดิม) ...
 async function performSmartQuickFix() {
     const context = getContext();
     const chat = context.chat;
