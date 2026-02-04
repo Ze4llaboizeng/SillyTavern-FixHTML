@@ -1,12 +1,11 @@
 const extensionName = "html-healer";
 const authorConfig = {
     name: "Zealllll",
-    avatarUrl: "scripts/extensions/third-party/SillyTavern-FixHTML/avatar.png"
+    avatarUrl: "scripts/extensions/third-party/SillyTavern-FixHTML-release/avatar.png"
 };
 
 let logic = null;
 let ui = null;
-let chatObserver = null;
 
 // State
 let initialSegments = [];
@@ -22,8 +21,7 @@ jQuery(async () => {
         ui = new HtmlHealerUI(authorConfig);
         
         initSettings();
-        initChatObserver(); // เริ่มระบบส่องแชท
-        console.log(`[${extensionName}] Modules loaded & Observer started.`);
+        console.log(`[${extensionName}] Modules loaded. Ready for manual triggers.`);
     } catch (e) {
         console.error(`[${extensionName}] Failed to load modules:`, e);
         toastr.error("HTML Healer failed to load modules.");
@@ -33,122 +31,50 @@ jQuery(async () => {
 function getContext() { return SillyTavern.getContext(); }
 
 /**
- * ระบบส่องแชท (Observer):
- * ทำหน้าที่แค่ "แปะปุ่ม" ถ้าเจอ Code Block ที่เข้าข่าย
- * ยังไม่มีการแก้ไขข้อความใดๆ ทั้งสิ้น จนกว่า user จะกด
+ * Main Feature: Auto Fix (Combined)
+ * กดทีเดียว แก้ทุกอย่าง:
+ * 1. เช็ค <think>
+ * 2. แก้ Code Block (Regex) -> แทรก </html>
+ * 3. แก้ General HTML (Stack) -> ปิด tag ทั่วไป
  */
-function initChatObserver() {
-    const chatContainer = document.querySelector('#chat');
-    if (!chatContainer) return;
-
-    chatObserver = new MutationObserver((mutations) => {
-        let shouldScan = false;
-        mutations.forEach(mutation => {
-            if (mutation.addedNodes.length > 0) shouldScan = true;
-        });
-        if (shouldScan) scanAndInjectButtons();
-    });
-
-    chatObserver.observe(chatContainer, { childList: true, subtree: true });
-    
-    // Scan ครั้งแรก
-    setTimeout(scanAndInjectButtons, 1000);
-}
-
-function scanAndInjectButtons() {
-    // วนหา Code block HTML ทั้งหมดในหน้าจอ
-    $('#chat .mes_text pre code').each(function() {
-        const codeBlock = $(this);
-        const preElement = codeBlock.parent();
-        
-        // 1. ถ้ามีปุ่มอยู่แล้ว ไม่ต้องทำอะไร
-        if (preElement.find('.html-healer-float-btn').length > 0) return;
-
-        // 2. เช็คเนื้อหาหน้าจอคร่าวๆ ว่าน่าจะเป็น HTML Block ที่พังไหม
-        // (เริ่มด้วย <div และไม่มี </html>)
-        const textContent = codeBlock.text().trim();
-        if (textContent.startsWith('<div') && !textContent.includes('</html>')) {
-            
-            // 3. สร้างปุ่ม (ยังไม่แก้)
-            const btn = ui.createFloatingFixButton(async () => {
-                // --- ส่วนนี้คือ Flow การแก้ไขจริง เมื่อกดปุ่ม ---
-                
-                // หา ID ของข้อความนั้น
-                const messageDiv = preElement.closest('.mes');
-                const mesIdStr = messageDiv.attr('mesid');
-                
-                if (mesIdStr !== undefined) {
-                    await handleInlineFixWithRegex(Number(mesIdStr));
-                } else {
-                    toastr.error("Could not find Message ID");
-                }
-            });
-
-            // แปะปุ่มลงไป
-            if (preElement.css('position') === 'static') preElement.css('position', 'relative');
-            preElement.append(btn);
-        }
-    });
-}
-
-/**
- * Flow การแก้ไขจริง (เหมือน Auto Fix):
- * 1. ดึงข้อความดิบ
- * 2. รัน Regex แทรก </html>
- * 3. บันทึกและรีโหลด
- */
-async function handleInlineFixWithRegex(mesId) {
-    const context = getContext();
-    const chat = context.chat;
-    
-    if (!chat[mesId]) return;
-
-    const originalText = chat[mesId].mes;
-
-    // เช็คด้วย Logic Regex (จาก logic.js)
-    if (logic.hasBrokenCodeBlock(originalText)) {
-        
-        // ทำการแก้ String
-        const fixedText = logic.fixUnclosedDivsInCodeBlock(originalText);
-        
-        if (fixedText !== originalText) {
-            // อัพเดทเข้า DB
-            chat[mesId].mes = fixedText;
-            await context.saveChat();
-            
-            // รีโหลดหน้าจอ (ปุ่มจะหายไปเอง เพราะ HTML ถูกแก้แล้ว)
-            await context.reloadCurrentChat(); 
-            
-            toastr.success("Injected </html> & Saved!");
-        } else {
-            toastr.info("Regex found no changes needed.");
-        }
-    } else {
-        toastr.warning("Could not find matching pattern in raw text.");
-    }
-}
-
-// ... (ฟังก์ชันเดิม performSmartQuickFix, openBlockEditor ฯลฯ ยังอยู่เหมือนเดิม) ...
 async function performSmartQuickFix() {
     const context = getContext();
     const chat = context.chat;
     if (!chat || chat.length === 0) return toastr.warning("No messages.");
+    
     const lastIndex = chat.length - 1;
-    const originalText = chat[lastIndex].mes;
-    const { isThinkBroken } = logic.parseSegments(originalText);
+    let originalText = chat[lastIndex].mes;
+    let currentText = originalText;
+
+    // 1. Safety Check for Think
+    const { isThinkBroken } = logic.parseSegments(currentText);
     if (isThinkBroken) {
         toastr.warning("Think is broken! Please click where the Story starts.", "Fix Required");
         openBlockEditor();
         return;
     }
-    const fixedText = logic.fixHtml(originalText);
-    if (fixedText !== originalText) {
-        chat[lastIndex].mes = fixedText;
+
+    // 2. Fix Code Blocks (Regex) - สแกนหา ``` และแก้
+    // ทำอันนี้ก่อน เพราะถ้า Regex แทรก </html> ลงไปแล้ว Stack Logic จะได้เห็นว่า tag ปิดครบ
+    let afterRegexFix = logic.fixUnclosedDivsInCodeBlock(currentText);
+
+    // 3. Fix General HTML (Stack) - แก้ tag ที่ลืมปิดทั่วไป
+    let finalFixedText = logic.fixHtml(afterRegexFix);
+
+    // 4. Save if changed
+    if (finalFixedText !== originalText) {
+        chat[lastIndex].mes = finalFixedText;
         await context.saveChat();
         await context.reloadCurrentChat();
-        toastr.success("Fixed HTML structure!");
+        
+        // เช็คว่าแก้อะไรไปบ้างเพื่อแจ้งเตือนให้ตรงจุด
+        if (afterRegexFix !== originalText) {
+             toastr.success("Fixed broken Code Block & HTML!");
+        } else {
+             toastr.success("Fixed HTML structure!");
+        }
     } else {
-        toastr.success("HTML looks perfect!");
+        toastr.success("HTML and Code Blocks look perfect!");
     }
 }
 
