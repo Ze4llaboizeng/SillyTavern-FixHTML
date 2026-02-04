@@ -1,6 +1,7 @@
 const extensionName = "html-healer";
 const authorConfig = {
     name: "Zealllll",
+    // หมายเหตุ: Path นี้ต้องตรงกับชื่อโฟลเดอร์จริง ถ้าเปลี่ยนชื่อโฟลเดอร์ต้องมาแก้ตรงนี้
     avatarUrl: "scripts/extensions/third-party/SillyTavern-FixHTML/avatar.png"
 };
 
@@ -32,11 +33,6 @@ function getContext() { return SillyTavern.getContext(); }
 
 // --- Button Actions ---
 
-/**
- * 1. Auto Fix HTML (เดิม)
- * แก้ไขเฉพาะ Tag ทั่วไป และเช็ค Think
- * (ไม่ยุ่งกับ Code Block แล้ว)
- */
 async function performSmartQuickFix() {
     const context = getContext();
     const chat = context.chat;
@@ -45,7 +41,6 @@ async function performSmartQuickFix() {
     const lastIndex = chat.length - 1;
     const originalText = chat[lastIndex].mes;
 
-    // Safety Check for Think
     const { isThinkBroken } = logic.parseSegments(originalText);
     if (isThinkBroken) {
         toastr.warning("Think is broken! Please click where the Story starts.", "Fix Required");
@@ -53,7 +48,6 @@ async function performSmartQuickFix() {
         return;
     }
 
-    // Fix only General HTML (Stack)
     const fixedText = logic.fixHtml(originalText);
 
     if (fixedText !== originalText) {
@@ -66,11 +60,6 @@ async function performSmartQuickFix() {
     }
 }
 
-/**
- * 2. Complete Code Block (ใหม่)
- * ปุ่มนี้แยกออกมาเพื่อแก้ Code Block โดยเฉพาะ
- * สแกนหา ``` ที่มี <div แล้วเติม </html>
- */
 async function performCodeBlockFix() {
     const context = getContext();
     const chat = context.chat;
@@ -79,7 +68,6 @@ async function performCodeBlockFix() {
     const lastIndex = chat.length - 1;
     const originalText = chat[lastIndex].mes;
 
-    // เรียก Logic แก้ Code Block
     const fixedText = logic.fixUnclosedDivsInCodeBlock(originalText);
 
     if (fixedText !== originalText) {
@@ -177,7 +165,6 @@ function openHighlightFixer() {
 function initSettings() {
     if ($('.html-healer-settings').length > 0) return;
     
-    // เพิ่มปุ่ม Complete Block เข้าไปในเมนู
     $('#extensions_settings').append(`
         <div class="html-healer-settings">
             <div class="inline-drawer">
@@ -209,7 +196,7 @@ function initSettings() {
     `);
     
     $('#html-healer-quick-fix').on('click', performSmartQuickFix);
-    $('#html-healer-block-fix').on('click', performCodeBlockFix); // Bind ปุ่มใหม่
+    $('#html-healer-block-fix').on('click', performCodeBlockFix);
     $('#html-healer-open-editor').on('click', openBlockEditor);
     $('#html-healer-open-split').on('click', openHighlightFixer);
 }
