@@ -2,9 +2,7 @@ export class HtmlHealerLogic {
     constructor() {
         this.voidTags = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
         
-        // Regex Pattern ตามที่คุณต้องการ:
-        // Group 1: เปิด ``` ตามด้วย <div และเนื้อหาข้างในทั้งหมด (แบบ Non-greedy)
-        // Group 2: ปิด ``` (\n```)
+        // Regex Pattern: จับ Code Block ที่เริ่มด้วย <div
         this.codeBlockRegex = /(```\w*\n\s*<div[\s\S]*?)(\n```)/g;
     }
 
@@ -28,6 +26,7 @@ export class HtmlHealerLogic {
         return { segments, isThinkBroken };
     }
 
+    // Fix 1: แก้ HTML ทั่วไป (Stack Logic)
     fixHtml(text) {
         if (!text) return "";
         const tagRegex = /<(\/?)([a-zA-Z0-9\-\_\.\:]+)([^>]*?)(\/?)>/g;
@@ -69,22 +68,17 @@ export class HtmlHealerLogic {
         return str.trim().split(/\s+/).length;
     }
 
-    // --- ส่วนของปุ่ม Smart Fix ---
-
-    /** * ตรวจสอบว่ามี pattern นี้ในข้อความดิบหรือไม่ 
-     * (เพื่อเช็คก่อนแก้จริงใน index.js)
-     */
-    hasBrokenCodeBlock(text) {
-        this.codeBlockRegex.lastIndex = 0; 
-        return this.codeBlockRegex.test(text);
-    }
-
-    /**
-     * ทำการแทนที่ $1 ด้วย $1\n</html>$2
-     */
+    // Fix 2: แก้ Code Block (Regex Logic)
+    // ทำงานเมื่อถูกสั่งเท่านั้น (ผ่านปุ่ม)
     fixUnclosedDivsInCodeBlock(text) {
+        if (!text) return "";
         this.codeBlockRegex.lastIndex = 0;
-        // แทรก </html> ลงไปตรงกลางระหว่างเนื้อหากับตัวปิด ```
+        
+        // ตรวจสอบว่ามี Code Block ที่ตรงเงื่อนไขไหม
+        if (!this.codeBlockRegex.test(text)) return text;
+
+        // ถ้ามี ให้ทำการแทรก </html>
+        this.codeBlockRegex.lastIndex = 0;
         return text.replace(this.codeBlockRegex, '$1\n</html>$2');
     }
 }
