@@ -2,13 +2,11 @@ export class HtmlHealerLogic {
     constructor() {
         this.voidTags = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
         
-        // Regex ตามที่คุณต้องการ: จับ Code Block ที่เริ่มด้วย <div และปิดท้าย
-        // Group 1: เปิด code block + เนื้อหา
-        // Group 2: ปิด code block (\n```)
+        // Regex Pattern ตามที่คุณต้องการ:
+        // Group 1: เปิด ``` ตามด้วย <div และเนื้อหาข้างในทั้งหมด (แบบ Non-greedy)
+        // Group 2: ปิด ``` (\n```)
         this.codeBlockRegex = /(```\w*\n\s*<div[\s\S]*?)(\n```)/g;
     }
-
-    // ... (ฟังก์ชันเดิม parseSegments, fixHtml, countWords เก็บไว้เหมือนเดิม) ...
 
     parseSegments(rawText) {
         if (!rawText) return { segments: [], isThinkBroken: false };
@@ -71,22 +69,22 @@ export class HtmlHealerLogic {
         return str.trim().split(/\s+/).length;
     }
 
-    // --- NEW FEATURE ---
-    /**
-     * ตรวจสอบว่ามี Code Block ที่ตรงเงื่อนไขหรือไม่
+    // --- ส่วนของปุ่ม Smart Fix ---
+
+    /** * ตรวจสอบว่ามี pattern นี้ในข้อความดิบหรือไม่ 
+     * (เพื่อเช็คก่อนแก้จริงใน index.js)
      */
     hasBrokenCodeBlock(text) {
-        // Reset lastIndex เพราะใช้ global flag
         this.codeBlockRegex.lastIndex = 0; 
         return this.codeBlockRegex.test(text);
     }
 
     /**
-     * ทำการแทรก </html> ลงไปก่อนปิด block
+     * ทำการแทนที่ $1 ด้วย $1\n</html>$2
      */
     fixUnclosedDivsInCodeBlock(text) {
         this.codeBlockRegex.lastIndex = 0;
-        // Replacement: ใส่ </html> คั่นกลางระหว่างเนื้อหากับตัวปิด
+        // แทรก </html> ลงไปตรงกลางระหว่างเนื้อหากับตัวปิด ```
         return text.replace(this.codeBlockRegex, '$1\n</html>$2');
     }
 }
