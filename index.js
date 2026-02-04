@@ -21,7 +21,7 @@ jQuery(async () => {
         ui = new HtmlHealerUI(authorConfig);
         
         initSettings();
-        console.log(`[${extensionName}] Modules loaded. Ready for manual triggers.`);
+        console.log(`[${extensionName}] Modules loaded. Ready.`);
     } catch (e) {
         console.error(`[${extensionName}] Failed to load modules:`, e);
         toastr.error("HTML Healer failed to load modules.");
@@ -30,12 +30,12 @@ jQuery(async () => {
 
 function getContext() { return SillyTavern.getContext(); }
 
+// --- Button Actions ---
+
 /**
- * Main Feature: Auto Fix (Combined)
- * กดทีเดียว แก้ทุกอย่าง:
- * 1. เช็ค <think>
- * 2. แก้ Code Block (Regex) -> แทรก </html>
- * 3. แก้ General HTML (Stack) -> ปิด tag ทั่วไป
+ * 1. Auto Fix HTML (เดิม)
+ * แก้ไขเฉพาะ Tag ทั่วไป และเช็ค Think
+ * (ไม่ยุ่งกับ Code Block แล้ว)
  */
 async function performSmartQuickFix() {
     const context = getContext();
@@ -43,38 +43,52 @@ async function performSmartQuickFix() {
     if (!chat || chat.length === 0) return toastr.warning("No messages.");
     
     const lastIndex = chat.length - 1;
-    let originalText = chat[lastIndex].mes;
-    let currentText = originalText;
+    const originalText = chat[lastIndex].mes;
 
-    // 1. Safety Check for Think
-    const { isThinkBroken } = logic.parseSegments(currentText);
+    // Safety Check for Think
+    const { isThinkBroken } = logic.parseSegments(originalText);
     if (isThinkBroken) {
         toastr.warning("Think is broken! Please click where the Story starts.", "Fix Required");
         openBlockEditor();
         return;
     }
 
-    // 2. Fix Code Blocks (Regex) - สแกนหา ``` และแก้
-    // ทำอันนี้ก่อน เพราะถ้า Regex แทรก </html> ลงไปแล้ว Stack Logic จะได้เห็นว่า tag ปิดครบ
-    let afterRegexFix = logic.fixUnclosedDivsInCodeBlock(currentText);
+    // Fix only General HTML (Stack)
+    const fixedText = logic.fixHtml(originalText);
 
-    // 3. Fix General HTML (Stack) - แก้ tag ที่ลืมปิดทั่วไป
-    let finalFixedText = logic.fixHtml(afterRegexFix);
-
-    // 4. Save if changed
-    if (finalFixedText !== originalText) {
-        chat[lastIndex].mes = finalFixedText;
+    if (fixedText !== originalText) {
+        chat[lastIndex].mes = fixedText;
         await context.saveChat();
         await context.reloadCurrentChat();
-        
-        // เช็คว่าแก้อะไรไปบ้างเพื่อแจ้งเตือนให้ตรงจุด
-        if (afterRegexFix !== originalText) {
-             toastr.success("Fixed broken Code Block & HTML!");
-        } else {
-             toastr.success("Fixed HTML structure!");
-        }
+        toastr.success("Fixed HTML structure!");
     } else {
-        toastr.success("HTML and Code Blocks look perfect!");
+        toastr.success("HTML looks perfect!");
+    }
+}
+
+/**
+ * 2. Complete Code Block (ใหม่)
+ * ปุ่มนี้แยกออกมาเพื่อแก้ Code Block โดยเฉพาะ
+ * สแกนหา ``` ที่มี <div แล้วเติม </html>
+ */
+async function performCodeBlockFix() {
+    const context = getContext();
+    const chat = context.chat;
+    if (!chat || chat.length === 0) return toastr.warning("No messages.");
+
+    const lastIndex = chat.length - 1;
+    const originalText = chat[lastIndex].mes;
+
+    // เรียก Logic แก้ Code Block
+    const fixedText = logic.fixUnclosedDivsInCodeBlock(originalText);
+
+    if (fixedText !== originalText) {
+        chat[lastIndex].mes = fixedText;
+        await context.saveChat();
+        await context.reloadCurrentChat();
+        toastr.success("Completed code blocks!");
+    } else {
+        toastr.info("No broken code blocks found.");
     }
 }
 
@@ -162,22 +176,40 @@ function openHighlightFixer() {
 
 function initSettings() {
     if ($('.html-healer-settings').length > 0) return;
+    
+    // เพิ่มปุ่ม Complete Block เข้าไปในเมนู
     $('#extensions_settings').append(`
         <div class="html-healer-settings">
             <div class="inline-drawer">
                 <div class="inline-drawer-toggle inline-drawer-header"><b>HTML Healer</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>
                 <div class="inline-drawer-content">
-                    <div class="styled_description_block">Refactored Modular Version</div>
+                    <div class="styled_description_block">Editor by ${authorConfig.name}</div>
+                    
                     <div style="display:flex; gap:5px; margin-top:5px;">
-                        <div id="html-healer-quick-fix" class="menu_button" style="flex:1; background-color: var(--smart-theme-color, #4caf50);"><i class="fa-solid fa-wand-magic-sparkles"></i> Auto</div>
-                        <div id="html-healer-open-editor" class="menu_button" style="flex:1;"><i class="fa-solid fa-layer-group"></i> Editor</div>
-                        <div id="html-healer-open-split" class="menu_button" style="flex:1;"><i class="fa-solid fa-highlighter"></i> Split</div>
+                        <div id="html-healer-quick-fix" class="menu_button" style="flex:1; background-color: var(--smart-theme-color, #4caf50);" title="Fix General HTML Tags">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> Auto
+                        </div>
+                        <div id="html-healer-block-fix" class="menu_button" style="flex:1; background-color: #2196f3;" title="Inject </html> into Code Blocks">
+                            <i class="fa-solid fa-code"></i> Complete Block
+                        </div>
                     </div>
+                    
+                    <div style="display:flex; gap:5px; margin-top:5px;">
+                        <div id="html-healer-open-editor" class="menu_button" style="flex:1;">
+                            <i class="fa-solid fa-layer-group"></i> Editor
+                        </div>
+                        <div id="html-healer-open-split" class="menu_button" style="flex:1;">
+                            <i class="fa-solid fa-highlighter"></i> Split
+                        </div>
+                    </div>
+
                 </div>
             </div>
         </div>
     `);
+    
     $('#html-healer-quick-fix').on('click', performSmartQuickFix);
+    $('#html-healer-block-fix').on('click', performCodeBlockFix); // Bind ปุ่มใหม่
     $('#html-healer-open-editor').on('click', openBlockEditor);
     $('#html-healer-open-split').on('click', openHighlightFixer);
 }
