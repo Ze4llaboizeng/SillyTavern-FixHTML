@@ -3,7 +3,7 @@ export class HtmlHealerUI {
         this.config = authorConfig;
     }
 
-    // ... (ฟังก์ชันเดิมของ Modal: _getHeaderHtml, renderEditorModal, etc. เก็บไว้) ...
+    // --- ส่วนเดิม (Modal) ---
     _getHeaderHtml(title, icon) {
         return `
         <div class="healer-header">
@@ -21,7 +21,7 @@ export class HtmlHealerUI {
         </div>`;
     }
 
-    renderEditorModal(segments, callbacks) { /* ... โค้ดเดิม ... */ 
+    renderEditorModal(segments, callbacks) {
         const modalHtml = `
         <div id="html-healer-modal" class="html-healer-overlay">
             <div class="html-healer-box">
@@ -72,7 +72,7 @@ export class HtmlHealerUI {
         });
     }
 
-    renderHighlightModal(originalText, callbacks) { /* ... โค้ดเดิม ... */ 
+    renderHighlightModal(originalText, callbacks) {
          const modalHtml = `
         <div id="html-healer-modal" class="html-healer-overlay">
             <div class="html-healer-box highlight-mode">
@@ -107,21 +107,28 @@ export class HtmlHealerUI {
     updateWordCounts(cotCount, mainCount) { $('#count-cot').text(cotCount + "w"); $('#count-main').text(mainCount + "w"); }
     setEditorValues(thinkText, storyText) { $('#editor-cot').val(thinkText); $('#editor-main').val(storyText); if (!thinkText) $('.think-group').hide(); else $('.think-group').show(); }
 
-    // --- NEW FEATURE ---
+    // --- ส่วนของปุ่ม Smart Fix (NEW) ---
     /**
-     * สร้างปุ่มลอยสำหรับแปะลงใน DOM
+     * สร้างปุ่มลอย (Floating Button)
+     * ปุ่มนี้จะยังไม่แก้โค้ด จนกว่าจะถูกกด (callback onClick)
      */
-    createFloatingFixButton(onClick) {
+    createFloatingFixButton(onClickCallback) {
         const btn = document.createElement('div');
         btn.className = 'html-healer-float-btn';
-        btn.innerHTML = '<i class="fa-solid fa-code"></i> Fix &lt;/html&gt;';
-        btn.title = "Click to append </html> to this block";
+        // ใส่ Text ให้รู้ว่าจะแก้ </html>
+        btn.innerHTML = '<i class="fa-solid fa-code"></i> Fix &lt;/html&gt;'; 
+        btn.title = "Inject </html> tag into this block (Click to Apply)";
         
-        // Prevent default click propagation to avoid triggering message editing etc.
+        // เมื่อกดปุ่ม ให้เรียก Callback ที่ส่งมาจาก index.js
         btn.addEventListener('click', (e) => {
-            e.stopPropagation();
             e.preventDefault();
-            onClick(e);
+            e.stopPropagation(); // กันไม่ให้ไปกดโดน Message หลัก
+            
+            // เปลี่ยนหน้าตาปุ่มนิดหน่อยให้รู้ว่ากำลังทำงาน
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Fixing...';
+            btn.style.opacity = '0.5';
+            
+            onClickCallback(e);
         });
         
         return btn;
