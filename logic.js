@@ -3,6 +3,7 @@ export class HtmlHealerLogic {
         this.voidTags = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
         
         // Regex Pattern: จับ Code Block ที่เริ่มด้วย <div
+        // จับ group 1 (เนื้อหา) และ group 2 (ปิด block) เพื่อรอแทรก </html>
         this.codeBlockRegex = /(```\w*\n\s*<div[\s\S]*?)(\n```)/g;
     }
 
@@ -68,17 +69,18 @@ export class HtmlHealerLogic {
         return str.trim().split(/\s+/).length;
     }
 
-    // Fix 2: แก้ Code Block (Regex Logic)
-    // ทำงานเมื่อถูกสั่งเท่านั้น (ผ่านปุ่ม)
+    // Fix 2: แก้ Code Block (Manual Trigger)
+    // ฟังก์ชันนี้จะถูกเรียกเมื่อกดปุ่ม "Complete Block" เท่านั้น
     fixUnclosedDivsInCodeBlock(text) {
-        if (!text) return "";
+        if (!text) return text;
+        
+        // Reset lastIndex
         this.codeBlockRegex.lastIndex = 0;
         
-        // ตรวจสอบว่ามี Code Block ที่ตรงเงื่อนไขไหม
+        // ถ้าไม่เจอ Code block ที่เข้าข่าย ก็คืนค่าเดิมไปเลย
         if (!this.codeBlockRegex.test(text)) return text;
 
-        // ถ้ามี ให้ทำการแทรก </html>
-        this.codeBlockRegex.lastIndex = 0;
+        // ถ้าเจอ ให้แทรก </html> เข้าไปก่อนปิด block
         return text.replace(this.codeBlockRegex, '$1\n</html>$2');
     }
 }
