@@ -132,3 +132,33 @@ textarea { flex: 1; width: 100%; border: none; background: transparent; color: #
     .header-brand { display: none; } 
     .segment-picker-area { height: 150px; }
 }
+
+/* add new here*/
+.html-healer-float-btn {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    z-index: 100;
+    background: var(--healer-accent);
+    color: #000;
+    font-size: 0.75rem;
+    font-weight: bold;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.2s, transform 0.1s;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    border: 1px solid rgba(0,0,0,0.1);
+}
+.html-healer-float-btn:hover {
+    opacity: 1;
+    transform: translateY(-1px);
+}
+.html-healer-float-btn:active {
+    transform: translateY(1px);
+}
+@media screen and (max-width: 600px) {
+    .header-brand { display: none; } 
+    .segment-picker-area { height: 150px; }
+}
